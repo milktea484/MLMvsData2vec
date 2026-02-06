@@ -1,0 +1,50 @@
+{
+    // UIに表示されるdevcontainer名
+    "name": "docker-mystudy",
+    // docker buildを行う場所
+    "context": "..",
+    // buildするdockerfile
+    "dockerFile": "../Dockerfile",
+    // devcontainerを閉じたときのコンテナの動き（なぜか効果無し）
+    "shutdownAction": "none",
+    // rootでなくする方法
+    "remoteUser": "devuser",
+    // devcontainerを立ち上げる際のrunオプション
+    "runArgs": ["--ipc=host", "--gpus", "all"],
+    // その他サポートされているツールやサービスの追加
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ArianJamasb.protein-viewer",
+                "GitHub.copilot",
+                "ms-azuretools.vscode-docker",
+                "ms-python.python",
+                "ms-toolsai.jupyter",
+                "redhat.vscode-yaml",
+                "tamasfe.even-better-toml"
+            ],
+            "settings": {
+                "editor.rulers": [88],
+                "editor.trimAutoWhitespace": true,
+                "files.insertFinalNewline": true,
+                "files.exclude": {
+                    "**/__pycache__/**": true,
+                    "**/*.egg-info/**": true,
+                    "**/.pytest_cache/**": true,
+                    "**/.ipynb_checkpoints/**": true
+                },
+                "notebook.formatOnCellExecution": true,
+                "notebook.formatOnSave.enabled": true,
+                "python.defaultInterpreterPath": "/opt/conda/bin/python",
+                "[python]": {
+                    "editor.codeActionsOnSave": {
+                        "source.organizeImports": "explicit"
+                    },
+                    "editor.formatOnSave": true,
+                    "editor.insertSpaces": true,
+                    "editor.tabSize": 4
+                }
+            }
+        }
+    }
+}

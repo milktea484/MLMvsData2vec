@@ -1,0 +1,46 @@
+hydra:
+  job:
+    chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S} # ログの保存場所は確保
+
+defaults:
+  - base_config_schema
+  - framework: mlm
+  - model_size: S
+  - optimizer: adamw
+  - lr_scheduler: cosine
+  - _self_
+
+common:
+  seed: 42
+  batch_size: 512
+  max_steps: 100000
+  eval_interval: 1000
+  eval_steps: 30
+  use_gpu: true
+  validation: true
+  num_workers: 4
+
+checkpoint:
+  model_save_interval: 30000
+
+# mystudyの直下での実行を想定した相対パス
+path:
+  data_dir: ./data/pretrain_data/
+  test_data_dir: ./data/SS_data/
+  output_dir: ./results/pretrain_results/
+
+dataset:
+  tokens: ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"]
+  rna_tokens: ["A", "C", "G", "U", "N"]
+  other_tokens: ["B", "D", "F", "I", "H", "K", "M", "S", "R", "W", "V", "Y", "X"]
+  max_length: 512
+  train_file: train_partition.h5
+  validation_file: val_partition.h5
+  test_file: ArchiveII.csv
+
+experiment:
+  extract_repr_layers: ${model_size.n_layers}
+  use_ernie_rna: false
+  use_additional_token: false

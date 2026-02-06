@@ -1,0 +1,10 @@
+name: R
+gradient_accumulation_steps: 8
+gradient_accumulation_steps_for_test: 64
+embed_dim: 480
+ffn_dim: 1920
+n_layers: 12
+n_heads: 20
+attention_dropout: 0.0
+k_layers: {n_layers}
+n_head_layers: 3

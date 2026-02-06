@@ -1,0 +1,10 @@
+name: S
+gradient_accumulation_steps: 1
+gradient_accumulation_steps_for_test: 8
+embed_dim: 256
+ffn_dim: 512
+n_layers: 6
+n_heads: 8
+attention_dropout: 0.0
+k_layers: ${model_size.n_layers}
+n_head_layers: 3

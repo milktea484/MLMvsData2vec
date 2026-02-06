@@ -1,0 +1,10 @@
+name: M
+gradient_accumulation_steps: 4
+gradient_accumulation_steps_for_test: 32
+embed_dim: 512
+ffn_dim: 2048
+n_layers: 8
+n_heads: 8
+attention_dropout: 0.0
+k_layers: {n_layers}
+n_head_layers: 3

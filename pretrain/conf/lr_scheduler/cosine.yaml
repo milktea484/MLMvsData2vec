@@ -1,0 +1,5 @@
+_target_: modules.CosineScheduler
+warmup_steps: ${div:${common.max_steps}, 10}
+total_steps: ${common.max_steps}
+max_lr: ${framework.lr}
+min_lr: 1e-6
