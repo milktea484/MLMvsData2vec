@@ -11,7 +11,7 @@ ema_end_decay: 0.9999
 ema_anneal_end_steps: ${div:${common.max_steps}, 5}
 loss_beta: 4.0
 
-quantize:
+quantize_cfg:
   use_quantize: false
   codebook_dim: 16
   n_codebooks: 10

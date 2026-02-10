@@ -505,7 +505,7 @@ class data2vecModel(BaseModel):
         y = y[masked_idxes_tensor]  # (num_masked_positions, embed_dim)
         
         # 量子化する場合はここに追記
-        if self.quantize:
+        if self.use_quantize:
             assert False, "Quantization not implemented yet."
             
             

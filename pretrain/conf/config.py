@@ -57,7 +57,7 @@ class data2vecConfig(FrameworkConfig):
     ema_anneal_end_steps: int = MISSING
     loss_beta: float = MISSING
     
-    quantize: QuantizeConfig = MISSING
+    quantize_cfg: QuantizeConfig = MISSING
         
     def __post_init__(self):
         super().__post_init__()
