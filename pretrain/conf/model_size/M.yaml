@@ -6,5 +6,5 @@ ffn_dim: 2048
 n_layers: 8
 n_heads: 8
 attention_dropout: 0.0
-k_layers: {n_layers}
+k_layers: ${model_size.n_layers}
 n_head_layers: 3
