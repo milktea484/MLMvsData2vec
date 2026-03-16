@@ -230,8 +230,8 @@ class TransformerLayer(nn.Module):
             tuple:
             出力テンソル (B, L, embed_dim),  
             残差接続前の中間表現 (B, L, embed_dim) | None,  
-            attention weight (B, n_layers\*n_heads, L, L),  
-            attentionのlogits(B, n_layers\*n_heads, L, L) | None
+            attention weight (B, n_layers*n_heads, L, L),  
+            attentionのlogits(B, n_layers*n_heads, L, L) | None
         """
         
         B, L, E = x.shape
