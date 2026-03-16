@@ -5,8 +5,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from conf.config import ExperimentConfig, QuantizeConfig
-from modules import CommonModule, CosineScheduler
+from conf.config import ExperimentConfig, QuantizeConfig, MLMLossConfig
+from modules import CommonModule
 
 
 class BaseModel(nn.Module):
@@ -23,6 +23,9 @@ class BaseModel(nn.Module):
         self.device = device
         self.padding_idx = padding_idx
         self.num_tokens = num_tokens
+        
+    def loss_func(self, *args, **kwargs):
+        raise NotImplementedError("loss_func method not implemented.")
     
     def _train(self, batch):
         raise NotImplementedError("_train method not implemented.")
@@ -82,12 +85,21 @@ class MLMModel(BaseModel):
         # 分類器の構築
         self.classifier = nn.Linear(arch["embed_dim"], self.num_tokens)
         
-        # 損失関数
-        self.criterion = nn.CrossEntropyLoss()
-        
         # その他に関する設定
         self.extract_repr_layers= experiment_cfg.extract_repr_layers
         self.to(self.device)
+        
+    def loss_func(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        損失関数の計算
+        
+        Args:
+            logits (torch.Tensor): モデルの出力ロジット (num_masked_positions, vocab_size)
+            target (torch.Tensor): 正解ラベル (num_masked_positions,)
+        Returns:
+            torch.Tensor: cross_entropyを用いて計算された損失
+        """
+        return F.cross_entropy(logits, target)
         
     def forward(
         self,
@@ -178,7 +190,7 @@ class MLMModel(BaseModel):
         target = target.view(-1)  # (num_masked_positions,)
         
         # 損失計算
-        loss = self.criterion(logits, target)
+        loss = self.loss_func(logits, target)
         
         # train時とvalidation時で返り値を分ける
         if mode == "train":
@@ -189,7 +201,6 @@ class MLMModel(BaseModel):
                 "loss": loss,
                 "var": var,
             }
-    
     
     def _train(self, batch):
         """
@@ -313,6 +324,7 @@ class data2vecModel(BaseModel):
         ema_anneal_end_steps: int,
         loss_beta: float,
         quantize_cfg: QuantizeConfig,
+        mlm_loss_cfg: MLMLossConfig,
         padding_idx: int,
         num_tokens: int,
         experiment_cfg: ExperimentConfig,
@@ -320,6 +332,13 @@ class data2vecModel(BaseModel):
         **framework_kwargs
     ):
         super().__init__(padding_idx=padding_idx, num_tokens=num_tokens, device=device)
+        
+        # quantizeの有無
+        self.use_quantize = quantize_cfg.use_quantize
+        
+        # MLMのlossをdata2vecのlossに追加するかどうか
+        self.use_mlm_loss = mlm_loss_cfg.use_mlm_loss
+        self.mlm_loss_weight = mlm_loss_cfg.mlm_loss_weight
         
         # 学習に関するパラメータ
         self.num_updates = 0
@@ -336,9 +355,6 @@ class data2vecModel(BaseModel):
         self.student_model = CommonModule(arch, self.padding_idx, self.num_tokens, device)
         self.ema = EMAModule(self.student_model, self.ema_decay, device)
         
-        # quantizeの有無
-        self.use_quantize = quantize_cfg.use_quantize
-        
         # regression headの構築
         curr_dim = arch["embed_dim"]
         projs = []
@@ -352,6 +368,10 @@ class data2vecModel(BaseModel):
         else:
             projs.append(nn.Linear(curr_dim, arch["embed_dim"]))
         self.regression_head = nn.Sequential(*projs)
+        
+        # MLMのlossをdata2vecのlossに追加する場合の分類器
+        if self.use_mlm_loss:
+            self.classifier = nn.Linear(arch["embed_dim"], self.num_tokens)
         
         # 損失関数
         if self.use_quantize:
@@ -377,6 +397,42 @@ class data2vecModel(BaseModel):
         # その他に関する設定
         self.extract_repr_layers= experiment_cfg.extract_repr_layers
         self.to(self.device)
+        
+    def loss_func(self, logits: torch.Tensor, target: torch.Tensor, logits_mlm: torch.Tensor=None, target_mlm: torch.Tensor=None) -> torch.Tensor:
+        """
+        損失関数の計算
+        
+        Args:
+            logits (torch.Tensor): モデルの出力ロジット(num_masked_positions, embed_dim)
+            target (torch.Tensor): 正解ラベル (num_masked_positions, embed_dim)
+            logits_mlm (torch.Tensor | None): MLMロジット (num_masked_positions, vocab_size)
+            target_mlm (torch.Tensor | None): MLM正解ラベル (num_masked_positions,)
+        Returns:
+            torch.Tensor: 計算された損失
+        """
+        
+        loss = torch.tensor(0.0, device=self.device)
+        
+        # 量子化する場合はここに追記
+        if self.use_quantize:
+            assert False, "Quantization not implemented yet."
+            
+        # 量子化しない場合は通常のSmoothL1Lossを計算
+        else:
+            sz = logits.shape[-1]
+            d2v_loss = self.criterion(
+                logits.float(),
+                target.float(),
+            ).sum(dim=-1) / math.sqrt(sz)
+        
+        # MLMのlossをdata2vecのlossに追加する場合
+        if self.use_mlm_loss:
+            mlm_loss = F.cross_entropy(logits_mlm, target_mlm)
+            loss = (1 - self.mlm_loss_weight) * d2v_loss + self.mlm_loss_weight * mlm_loss
+        else:
+            loss = d2v_loss
+        
+        return loss
         
     def forward(
         self,
@@ -504,20 +560,21 @@ class data2vecModel(BaseModel):
         x = x[masked_idxes_tensor]  # (num_masked_positions, embed_dim)
         y = y[masked_idxes_tensor]  # (num_masked_positions, embed_dim)
         
+        # 損失計算
         # 量子化する場合はここに追記
         if self.use_quantize:
             assert False, "Quantization not implemented yet."
-            
-            
-        # regression headの適用
-        x = self.regression_head(x)  # (num_masked_positions, embed_dim)
         
-        # 損失計算
-        sz = x.shape[-1]
-        loss = self.criterion(
-            x.float(),
-            y.float(),
-        ).sum(dim=-1) / math.sqrt(sz)
+        # 通常のSmoothL1LossまたはMLMのcross_entropyを計算
+        else:
+            # regression headの適用
+            d2v_logits = self.regression_head(x)  # (num_masked_positions, embed_dim)
+            
+            if self.use_mlm_loss:
+                mlm_logits = self.classifier(x)  # (num_masked_positions, vocab_size)
+                loss = self.loss_func(d2v_logits, y, logits_mlm=mlm_logits, target_mlm=teacher_input[masked_idxes_tensor])
+            else:
+                loss = self.loss_func(d2v_logits, y)
         
         # train時とvalidation時で返り値を分ける
         if mode == "train":
