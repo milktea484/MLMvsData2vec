@@ -16,6 +16,10 @@ quantize_cfg:
   codebook_dim: 16
   n_codebooks: 10
 
+mlm_loss_cfg:
+  use_mlm_loss: false
+  mlm_loss_weight: 0.2
+
 arch:
   embed_dim: ${model_size.embed_dim}
   ffn_dim: ${model_size.ffn_dim}
