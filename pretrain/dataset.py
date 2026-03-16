@@ -264,7 +264,7 @@ def create_dataloader(config: MainConfig, split: str):
     
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=config.common.batch_size,
+        batch_size=config.common.batch_size // config.model_size.gradient_accumulation_steps,
         worker_init_fn=seed_worker,
         generator=g,
         shuffle=(split == "train"),
