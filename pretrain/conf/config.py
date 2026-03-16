@@ -49,6 +49,15 @@ class QuantizeConfig:
     codebook_dim: int = MISSING
     n_codebooks: int = MISSING
 
+# MLMのlossをdata2vecのlossに追加する場合の設定クラス
+@dataclass
+class MLMLossConfig:
+    use_mlm_loss: bool = MISSING
+    """MLMのlossをdata2vecのlossに追加するかどうか"""
+    mlm_loss_weight: float = MISSING
+    """data2vecのlossに対するMLMのlossの重み(加重平均)"""
+
+
 # data2vec用のframework設定クラス
 @dataclass
 class data2vecConfig(FrameworkConfig):
@@ -58,7 +67,8 @@ class data2vecConfig(FrameworkConfig):
     loss_beta: float = MISSING
     
     quantize_cfg: QuantizeConfig = MISSING
-        
+    mlm_loss_cfg: MLMLossConfig = MISSING
+
     def __post_init__(self):
         super().__post_init__()
         assert self.arch.k_layers is not None and self.arch.n_head_layers is not None, \
