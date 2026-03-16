@@ -139,6 +139,7 @@ class PathConfig:
     data_dir: str = MISSING
     test_data_dir: str = MISSING
     output_dir: str = MISSING
+    timestamp: str = MISSING
 
 # dataset設定クラス
 @dataclass

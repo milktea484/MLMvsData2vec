@@ -2,7 +2,8 @@ hydra:
   job:
     chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
   run:
-    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S} # ログの保存場所は確保
+    # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S} # ログの保存場所は確保
+    dir: ./results/pretrain_results/${framework.name}/${timestamp} # ログの保存場所は確保
 
 defaults:
   - base_config_schema
@@ -30,6 +31,7 @@ path:
   data_dir: ./data/pretrain_data/
   test_data_dir: ./data/SS_data/
   output_dir: ./results/pretrain_results/
+  timestamp: ${now:%Y%m%dT%H%M%S}
 
 dataset:
   tokens: ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"]

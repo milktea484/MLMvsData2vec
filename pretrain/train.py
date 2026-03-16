@@ -25,8 +25,7 @@ def main(cfg: MainConfig):
     validate_config(cfg)
     
     # 出力ディレクトリの設定
-    timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
-    output_dir = Path(cfg.path.output_dir) / f"{cfg.framework.name}" / f"{timestamp}"
+    output_dir = Path(cfg.path.output_dir) / f"{cfg.framework.name}" / f"{cfg.path.timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # logの設定
@@ -63,7 +62,7 @@ def main(cfg: MainConfig):
     wandb.init(
         project=f"MLMvsData2vec",
         config=OmegaConf.to_container(cfg, resolve=True),
-        name=f"{cfg.framework.name}_{timestamp}",
+        name=f"{cfg.framework.name}_{cfg.path.timestamp}",
         tags=cfg.framework.wandb_tags,
         dir=output_dir.resolve(),
     )
