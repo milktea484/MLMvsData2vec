@@ -38,3 +38,4 @@ dataset:
 
 experiment:
   name: "???"
+  use_teacher: false

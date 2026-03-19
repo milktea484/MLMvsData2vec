@@ -76,6 +76,9 @@ class DatasetConfig:
 class ExperimentConfig:
     name: str = MISSING
     """二次構造予測に使用する実験の名前 (必須)"""
+    
+    use_teacher: bool = MISSING
+    """教師モデルの出力を使用して二次構造予測を行うかどうか (data2vecのみ)"""
 
 @dataclass
 class MainConfig:
