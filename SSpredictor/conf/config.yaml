@@ -2,7 +2,7 @@ hydra:
   job:
     chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
   run:
-    dir: ./results/SS_results/${experiment.name}/${pretrain.framework}/${pretrain.model_path}/${model.name}/${path.timestamp}/train_config # ログの保存場所は確保
+    dir: ./${path.output_dir}/train_config # ログの保存場所は確保
 
 defaults:
   - base_config_schema
@@ -20,13 +20,13 @@ common:
 
 pretrain:
   framework: "???"
-  model_path: "???"
+  timestamp: "???"
   checkpoint: 0
-  cfg_path: ./results/pretrain_results/${pretrain.framework}/${pretrain.model_path}/train_config/config.yaml
+  model_path: ./results/pretrain_results/${pretrain.framework}/${pretrain.timestamp}
 
 path:
   data_dir: ./data/SS_data/
-  output_dir: ./results/SS_results/
+  output_dir: ./results/SS_results/${experiment.name}/${pretrain.framework}/${pretrain.timestamp}/${model.name}/${path.timestamp}/
   timestamp: ${now:%Y%m%dT%H%M%S}
 
 dataset:

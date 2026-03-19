@@ -3,6 +3,7 @@ from typing import Any
 
 from omegaconf import MISSING
 
+
 @dataclass
 class ModelConfig:
     _target_: str = MISSING
@@ -48,14 +49,14 @@ class PretrainConfig:
     framework: str = MISSING
     """使用する事前学習モデルのフレームワーク (必須)"""
     
-    model_path: str = MISSING
-    """使用する事前学習モデルのパス(タイムスタンプ) (必須)"""
+    timestamp: str = MISSING
+    """使用する事前学習モデルのタイムスタンプ (必須)"""
     
     checkpoint: str = MISSING
     """使用するモデルのチェックポイント"""
     
-    cfg_path: str = MISSING
-    """使用するモデルのconfig.yamlのパス"""
+    model_path: str = MISSING
+    """使用するモデルのディレクトリ"""
     
 @dataclass
 class PathConfig:
