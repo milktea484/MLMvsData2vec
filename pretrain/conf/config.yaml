@@ -3,7 +3,7 @@ hydra:
     chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
   run:
     # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S} # ログの保存場所は確保
-    dir: ./results/pretrain_results/${framework.name}/${path.timestamp}/train_config # ログの保存場所は確保
+    dir: ./${path.output_dir}/train_config # ログの保存場所は確保
 
 defaults:
   - base_config_schema
@@ -30,7 +30,7 @@ checkpoint:
 path:
   data_dir: ./data/pretrain_data/
   test_data_dir: ./data/SS_data/
-  output_dir: ./results/pretrain_results/
+  output_dir: ./results/pretrain_results/${framework.name}/${path.timestamp}/
   timestamp: ${now:%Y%m%dT%H%M%S}
 
 dataset:

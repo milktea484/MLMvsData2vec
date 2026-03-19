@@ -25,7 +25,7 @@ def main(cfg: MainConfig):
     validate_config(cfg)
     
     # 出力ディレクトリの設定
-    output_dir = Path(cfg.path.output_dir) / f"{cfg.framework.name}" / f"{cfg.path.timestamp}"
+    output_dir = Path(cfg.path.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # logの設定
