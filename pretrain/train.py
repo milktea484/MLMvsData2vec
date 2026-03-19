@@ -67,6 +67,14 @@ def main(cfg: MainConfig):
         dir=output_dir.resolve(),
     )
     
+    # データローダーの設定
+    train_batch_iterator = create_batch_iterator(config=cfg, split="train")
+    val_batch_iterator = {
+        "train": create_batch_iterator(config=cfg, split="train"),
+    }
+    if cfg.common.validation:
+        val_batch_iterator["validation"] = create_batch_iterator(config=cfg, split="validation")
+    
     # モデルの動的インポートと初期化
     model: BaseModel = hydra.utils.instantiate(
         cfg.framework,
@@ -77,14 +85,6 @@ def main(cfg: MainConfig):
     )
     optimizer: torch.optim.Optimizer = hydra.utils.instantiate(cfg.optimizer, params=model.parameters())
     lr_scheduler: torch.optim.lr_scheduler._LRScheduler = hydra.utils.instantiate(cfg.lr_scheduler, optimizer=optimizer)
-    
-    # データローダーの設定
-    train_batch_iterator = create_batch_iterator(config=cfg, split="train")
-    val_batch_iterator = {
-        "train": create_batch_iterator(config=cfg, split="train"),
-    }
-    if cfg.common.validation:
-        val_batch_iterator["validation"] = create_batch_iterator(config=cfg, split="validation")
     
     # トレーニングの実行
     logger.info(f"Run on {output_dir}, with device {device}")
