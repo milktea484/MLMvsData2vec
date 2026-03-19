@@ -1,0 +1,13 @@
+_target_: models.KnotFoldModel
+name: knotfold
+lr: 1e-4
+weight_decay: 0.01
+kf_lambda: 3.0
+max_ref_epochs: 3
+
+arch:
+  use_simple: false
+  conv_dim: 64
+  kernel_size: 3
+  n_residual_blocks: 2
+  

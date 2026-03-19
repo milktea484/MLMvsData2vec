@@ -1,0 +1,40 @@
+hydra:
+  job:
+    chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
+  run:
+    dir: ./results/SS_results/${experiment.name}/${pretrain.framework}/${pretrain.model_path}/${model.name}/${path.timestamp}/train_config # ログの保存場所は確保
+
+defaults:
+  - base_config_schema
+  - model: knotfold
+  - optimizer: adamw
+  - _self_
+
+common:
+  seed: 42
+  batch_size: 2
+  max_epochs: 15
+  use_gpu: true
+  validation: true
+  iterations: 3
+
+pretrain:
+  framework: "???"
+  model_path: "???"
+  checkpoint: 0
+  cfg_path: ./results/pretrain_results/${pretrain.framework}/${pretrain.model_path}/train_config/config.yaml
+
+path:
+  data_dir: ./data/SS_data/
+  output_dir: ./results/SS_results/
+  timestamp: ${now:%Y%m%dT%H%M%S}
+
+dataset:
+  max_length: 512
+  sequence_file: ArchiveII.csv
+  train_file: train.csv
+  validation_file: test.csv
+  test_file: test.csv
+
+experiment:
+  name: "???"

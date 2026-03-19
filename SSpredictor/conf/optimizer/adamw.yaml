@@ -1,0 +1,3 @@
+_target_: torch.optim.AdamW
+lr: ${model.lr}
+weight_decay: ${model.weight_decay}
