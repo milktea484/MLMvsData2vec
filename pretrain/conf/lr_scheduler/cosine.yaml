@@ -1,4 +1,4 @@
-_target_: modules.CosineScheduler
+_target_: pretrain.modules.CosineScheduler
 warmup_steps: ${div:${common.max_steps}, 10}
 total_steps: ${common.max_steps}
 max_lr: ${framework.lr}
