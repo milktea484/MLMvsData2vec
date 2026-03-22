@@ -5,7 +5,7 @@
 mystudy/  
     ホームディレクトリ．ここでscriptsを実行．
 
-- pretrain/ : 事前学習モデル．
+- pretrain/ : 事前学習モデル．Editable Installを前提としている
     - models.py : MLMとdata2vec，あるいはその両方を組み合わせたモデルの実装．
     - train.py : 事前学習モデルの訓練（if main で単体でも実行できるように）．
     - test.py : 特徴表現の抽出．
