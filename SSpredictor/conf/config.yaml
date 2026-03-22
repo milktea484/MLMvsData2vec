@@ -21,7 +21,7 @@ common:
 pretrain:
   framework: "???"
   timestamp: "???"
-  checkpoint: 0
+  checkpoint: final
   model_path: ./results/pretrain_results/${pretrain.framework}/${pretrain.timestamp}
 
 path:
@@ -38,4 +38,6 @@ dataset:
 
 experiment:
   name: "???"
+  additional_experiment_info: null
   use_teacher: false
+  use_attention: true

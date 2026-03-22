@@ -53,7 +53,7 @@ class PretrainConfig:
     """使用する事前学習モデルのタイムスタンプ (必須)"""
     
     checkpoint: str = MISSING
-    """使用するモデルのチェックポイント"""
+    """使用するモデルのチェックポイント. デフォルトは事前学習モデルの最終ステップ(final)"""
     
     model_path: str = MISSING
     """使用するモデルのディレクトリ"""
@@ -77,8 +77,14 @@ class ExperimentConfig:
     name: str = MISSING
     """二次構造予測に使用する実験の名前 (必須)"""
     
+    additional_experiment_info: str = None
+    """実験の追加情報 (famfoldのfamilyやkfoldのk). 訓練, テストファイルのパス指定に使用する"""
+    
     use_teacher: bool = MISSING
     """教師モデルの出力を使用して二次構造予測を行うかどうか (data2vecのみ)"""
+    
+    use_attention: bool = MISSING
+    """使用する特徴表現をattentionにするかどうか. falseなら配列特徴量になる"""
 
 @dataclass
 class MainConfig:
