@@ -106,7 +106,7 @@ class TrainingDataset(Dataset):
         lengths = [b["length"] for b in batch]
         
         # バディング用にサイズを取得
-        batch_size = len(token_seqs)
+        batch_size = len(batch)
         max_length = max(lengths)
         
         # バッチ用のテンソルを初期化
@@ -189,7 +189,7 @@ class TestDataset(Dataset):
         lengths = [b["length"] for b in batch]
         
         # バディング用にサイズを取得
-        batch_size = len(token_seqs)
+        batch_size = len(batch)
         max_length = max(lengths)
         
         # バッチ用のテンソルを初期化
@@ -287,7 +287,7 @@ def create_batch_iterator(
         split (str): データ分割 ("train", "validation", or "test")
     
     Returns:
-        torch.utils.data.DataLoader: バッチイテレータ
+        Iterator: バッチイテレータ
     """
     
     loader = create_dataloader(config=config, split=split)
@@ -299,7 +299,7 @@ def create_batch_iterator(
                 batch["token_seqs_masked"] = batch["token_seqs_masked"].to(torch.long)
             yield batch
             
-        if split != "train":
+        if split == "test":
             break
     
     
