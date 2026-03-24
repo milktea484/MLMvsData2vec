@@ -5,7 +5,7 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from conf.config import ExperimentConfig, QuantizeConfig, MLMLossConfig
+from conf.config import ExperimentConfig, MLMLossConfig, QuantizeConfig
 from modules import CommonModule
 
 
@@ -57,7 +57,7 @@ class BaseModel(nn.Module):
 
 class MLMModel(BaseModel):
     """
-    Masked Language Modelの実装
+    Masked Language Modelingの実装
     
     Args:
         arch (dict[str, Any]): モデルアーキテクチャの設定情報
