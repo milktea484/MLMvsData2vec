@@ -1,0 +1,1 @@
+# knotfoldモデルの中でreferenceを追加すること (batch["reference"]はNoneで初期化されているので，1epoch目でreferenceを計算してbatchに追加する)
