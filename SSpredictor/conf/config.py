@@ -9,6 +9,7 @@ class ModelConfig:
     _target_: str = MISSING
     name: str = MISSING
     lr: float = MISSING
+    min_lr: float = MISSING
     weight_decay: float = MISSING
     
 @dataclass

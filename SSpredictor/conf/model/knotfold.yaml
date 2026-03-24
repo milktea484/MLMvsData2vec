@@ -1,6 +1,7 @@
 _target_: models.KnotFoldModel
 name: knotfold
 lr: 1e-4
+min_lr: 1e-6
 weight_decay: 0.01
 kf_lambda: 3.0
 max_ref_epochs: 3
