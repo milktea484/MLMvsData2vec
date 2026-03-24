@@ -1,4 +1,4 @@
-_target_: pretrain.models.MLMModel
+_target_: models.MLMModel
 name: mlm
 wandb_tags: ["mlm"]
 lr: 0.0002
