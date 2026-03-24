@@ -7,11 +7,12 @@ mystudy/
 
 - pretrain/ : 事前学習モデル．Editable Installを前提としている
     - models.py : MLMとdata2vec，あるいはその両方を組み合わせたモデルの実装．
-    - train.py : 事前学習モデルの訓練（if main で単体でも実行できるように）．
+    - train.py : 事前学習モデルの訓練．
     - test.py : 特徴表現の抽出．
     - module.py : modelで使用するレイヤやPEなどの実装．
     - utils.py : その他使用する関数の定義．
     - dataset.py : pytorchデータセットおよびその周辺の関数の定義．
+    - pyproject.toml : Editable Install用のtomlファイル．
     - conf/ : hydraを用いたパラメータ設定ファイルを含むディレクトリ．  
         - config.yaml : hydraを用いたパラメータ設定ファイル．
         - config.py : パラメータの型ヒントを与えるためのdataclass．
@@ -23,16 +24,28 @@ mystudy/
             - m.yaml : midiumサイズ
             - l.yaml : largeサイズ
             - r.yaml : RiNALMoと同じサイズ
+        - lr_scheduler/ : 学習率スケジューラのパラメータ設定．
+            - cosine.yaml : コサインスケジューラ
+        - optimizer/ : オプティマイザーのパラメータ設定．
+            - adamw.yaml : AdamW
 
 - SSpredictor/ : 二次構造予測モデル．（あるいはそれ以外の予測にも拡張可能性を残す）
-    - model.py : 線形層のみ，MXfold2，その他既存モデルを組み込めるようなモデルフレームワークの実装．
+    - models.py : 線形層のみ，MXfold2，その他既存モデルを組み込めるようなモデルフレームワークの実装．
+    - modules.py : モデル構築や学習率スケジューラなどを定義．
     - train.py : モデルの学習．
     - test.py : 二次構造予測．
     - utils.py : その他使用する関数の定義．
     - dataset.py : pytorchデータセットおよびその周辺の関数の定義．
+    - knotfold/ : KnotFoldのmin cost flowアルゴリズム
+        - KnotFold_mincostflow.cc
+        - KnotFold_mincostflow
     - conf/ : hydraを用いたパラメータ設定ファイルを含むディレクトリ．  
         - config.yaml : hydraを用いたパラメータ設定ファイル．
         - config.py : パラメータの型ヒントを与えるためのdataclass．
+        - model/ : モデルのパラメータ設定
+            - knotfold.yaml : KnotFold
+        - optimizer/ : オプティマイザーのパラメータ設定
+            - adamw.yaml : AdamW
 
 - scripts/ : pretrainやpredictorの実行．
     - pretrain.py : 事前学習モデルの訓練，特徴表現の抽出，あるいはその両方を一括で実行．
