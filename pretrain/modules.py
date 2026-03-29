@@ -256,15 +256,17 @@ class TransformerLayer(nn.Module):
             "attn_mask must be float type"
         
         attn, attn_logits = None, None
-        if use_ernie_rna and not test_mode:
+        if use_ernie_rna:
             # ERNIE-RNAの戦略を使用する場合, attention weightのlogitを取得する必要がある
-            x, _, attn_logits = self.manual_scaled_dot_product_attention(
+            x, attn, attn_logits = self.manual_scaled_dot_product_attention(
                 query=q,
                 key=k,
                 value=v,
                 attn_mask=attn_mask,
                 dropout_p=self.attention_dropout if self.training else 0.0
             )
+            if not test_mode:
+                attn = None  # テストモード以外ではattention weightは返さない
         else:
             # 通常のscaled dot product attention
             x, attn = self.original_scaled_dot_product_attention(
