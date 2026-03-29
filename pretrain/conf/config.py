@@ -33,8 +33,8 @@ class FrameworkConfig:
     arch: ArchitectureConfig = MISSING
     
     def __post_init__(self):
-        assert self.name in ["mlm", "data2vec"], \
-            "framework.name must be either 'mlm' or 'data2vec'."
+        if self.name not in ["mlm", "data2vec"]:
+            raise ValueError("framework.name must be either 'mlm' or 'data2vec'.")
 
 # MLM用のframework設定クラス
 @dataclass
@@ -71,8 +71,8 @@ class data2vecConfig(FrameworkConfig):
 
     def __post_init__(self):
         super().__post_init__()
-        assert self.arch.k_layers is not None and self.arch.n_head_layers is not None, \
-            "k_layers and n_head_layers must be specified for data2vec framework."
+        if self.arch.k_layers is None or self.arch.n_head_layers is None:
+            raise ValueError("k_layers and n_head_layers must be specified for data2vec framework.")
 
 # model_size設定の基底クラス
 @dataclass
