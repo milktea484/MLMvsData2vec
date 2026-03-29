@@ -1,0 +1,39 @@
+hydra:
+  job:
+    chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
+  run:
+    dir: ./${path.output_dir}/${path.timestamp}/test_config # ログの保存場所は確保
+
+defaults:
+  - test_config_schema
+  - _self_
+
+common:
+  seed: 42
+  batch_size: 2
+  use_gpu: true
+  iterations: null
+
+pretrain:
+  framework: null
+  timestamp: null
+
+path:
+  output_dir: ./results/SS_results/${experiment.name}/
+  timestamp: ${now:%Y%m%dT%H%M%S}
+
+SStrain_model_path:
+  model_name: "???"
+  timestamp: "???"
+
+dataset:
+  embedding_file: null
+  test_file: test.csv
+
+evaluation:
+  auc_step: 0.01
+
+experiment:
+  name: "???"
+  additional_experiment_info: null
+  kf_lambda: null
