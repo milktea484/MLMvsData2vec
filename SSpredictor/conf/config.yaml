@@ -2,7 +2,7 @@ hydra:
   job:
     chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
   run:
-    dir: ./${path.output_dir}/train_config # ログの保存場所は確保
+    dir: ./${path.output_dir}/${path.timestamp}/train_config # ログの保存場所は確保
 
 defaults:
   - base_config_schema
@@ -14,24 +14,29 @@ common:
   seed: 42
   batch_size: 2
   max_epochs: 15
+  eval_per_epoch: 2 # 1epochあたりの評価回数
+  eval_steps: 30
   use_gpu: true
   validation: true
-  iterations: 3
+  iterations: 1
 
 pretrain:
-  framework: "???"
-  timestamp: "???"
+  framework: null
+  timestamp: null
   checkpoint: final
-  model_path: ./results/pretrain_results/${pretrain.framework}/${pretrain.timestamp}
 
 path:
   data_dir: ./data/SS_data/
-  output_dir: ./results/SS_results/${experiment.name}/${pretrain.framework}/${pretrain.timestamp}/${model.name}/${path.timestamp}/
+  embedding_dir: ./data/embeddings/
+  pretrain_model_dir: ./results/pretrain_results/
+  # output_dir: ./results/SS_results/${experiment.name}/${pretrain.framework}/${pretrain.timestamp}/${model.name}/${path.timestamp}/
+  output_dir: ./results/SS_results/${experiment.name}/
   timestamp: ${now:%Y%m%dT%H%M%S}
 
 dataset:
   max_length: 512
   sequence_file: ArchiveII.csv
+  embedding_file: null
   train_file: train.csv
   validation_file: test.csv
   test_file: test.csv

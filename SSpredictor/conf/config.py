@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from omegaconf import MISSING
@@ -41,27 +42,28 @@ class CommonConfig:
     seed: int = MISSING
     batch_size: int = MISSING
     max_epochs: int = MISSING
+    eval_per_epoch: int = MISSING
+    eval_steps: int = MISSING
     use_gpu: bool = MISSING
     validation: bool = MISSING
     iterations: int = MISSING
 
 @dataclass
 class PretrainConfig:
-    framework: str = MISSING
-    """使用する事前学習モデルのフレームワーク (必須)"""
+    framework: str = None
+    """使用する事前学習モデルのフレームワーク"""
     
-    timestamp: str = MISSING
-    """使用する事前学習モデルのタイムスタンプ (必須)"""
+    timestamp: str = None
+    """使用する事前学習モデルのタイムスタンプ"""
     
     checkpoint: str = MISSING
     """使用するモデルのチェックポイント. デフォルトは事前学習モデルの最終ステップ(final)"""
     
-    model_path: str = MISSING
-    """使用するモデルのディレクトリ"""
-    
 @dataclass
 class PathConfig:
     data_dir: str = MISSING
+    embedding_dir: str = MISSING
+    pretrain_model_dir: str = MISSING
     output_dir: str = MISSING
     timestamp: str = MISSING    
 
@@ -69,6 +71,8 @@ class PathConfig:
 class DatasetConfig:
     max_length: int = MISSING
     sequence_file: str = MISSING
+    embedding_file: str = None
+    """すでにh5形式で保存されている配列特徴量のファイル名. 事前学習モデルの出力を使用する場合に必要"""
     train_file: str = MISSING
     validation_file: str = MISSING
     test_file: str = MISSING
@@ -96,4 +100,3 @@ class MainConfig:
     path: PathConfig = MISSING
     dataset: DatasetConfig = MISSING
     experiment: ExperimentConfig = MISSING
-    
