@@ -35,7 +35,9 @@ class TrainingDataset(Dataset):
         use_ernie_rna: bool = False,
         ernie_rna_alpha: float = 0.8,
     ):
-        assert dataset_path.suffix == ".h5", "TrainingDataset only supports .h5 files."
+        if dataset_path.suffix != ".h5":
+            raise ValueError("TrainingDataset only supports .h5 files.")
+
         self.cache = dataset_path
         self.tokens = tokens
         self.rna_tokens = rna_tokens
@@ -68,7 +70,7 @@ class TrainingDataset(Dataset):
         token_seq = [int(t) for t in list(token_seq)]
         if self.use_additional_token:
             token_seq = [self.cls_token] + token_seq + [self.eos_token]
-        token_seq = torch.tensor(token_seq, dtype=torch.uint8)
+        token_seq = torch.tensor(token_seq, dtype=torch.long)
         
         # マスクされたトークン配列の作成
         token_seq_masked, masked_idxes = masking(
@@ -110,16 +112,16 @@ class TrainingDataset(Dataset):
         max_length = max(lengths)
         
         # バッチ用のテンソルを初期化
-        token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.uint8)
-        token_seqs_masked_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.uint8)
+        token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
+        token_seqs_masked_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
         
         # attentionマスクの初期化
-        attn_mask = torch.full((batch_size, 1, max_length, max_length), fill_value=-1e6, dtype=torch.bfloat16)
+        attn_mask = torch.full((batch_size, 1, max_length, max_length), fill_value=-1e6)
         
         # attentionバイアスの初期化
         if self.use_ernie_rna:
-            attn_biases_padded = torch.zeros((batch_size, 1, max_length, max_length), dtype=torch.bfloat16)
-            attn_biases_masked_padded = torch.zeros((batch_size, 1, max_length, max_length), dtype=torch.bfloat16)
+            attn_biases_padded = torch.zeros((batch_size, 1, max_length, max_length))
+            attn_biases_masked_padded = torch.zeros((batch_size, 1, max_length, max_length))
         else:
             attn_biases_padded = None
             attn_biases_masked_padded = None
@@ -160,7 +162,9 @@ class TestDataset(Dataset):
         other_tokens: list[str] = ["B", "D", "F", "I", "H", "K", "M", "S", "R", "W", "V", "Y", "X"],
         use_additional_token: bool = False,
     ):
-        assert dataset_path.suffix == ".csv", "TestDataset only supports .csv files."
+        if dataset_path.suffix != ".csv":
+            raise ValueError("TestDataset only supports .csv files.")
+
         data = pd.read_csv(dataset_path)
         sequences = data["sequence"].tolist()
         
@@ -193,10 +197,10 @@ class TestDataset(Dataset):
         max_length = max(lengths)
         
         # バッチ用のテンソルを初期化
-        token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.uint8)
+        token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
         
         # attentionマスクの初期化
-        attn_mask = torch.full((batch_size, 1, max_length, max_length), fill_value=-1e6, dtype=torch.bfloat16)
+        attn_mask = torch.full((batch_size, 1, max_length, max_length), fill_value=-1e6)
         
         # パディング
         for k in range(batch_size):
@@ -227,6 +231,8 @@ def create_dataloader(config: MainConfig, split: str):
     """
     
     # データセットの選択
+    assert split in ["train", "validation", "test"], "split must be 'train', 'validation', or 'test'"
+    
     if split == "train":
         dataset = TrainingDataset(
             dataset_path=Path(config.path.data_dir) / config.dataset.train_file,
@@ -249,15 +255,13 @@ def create_dataloader(config: MainConfig, split: str):
             use_ernie_rna=config.experiment.use_ernie_rna,
             ernie_rna_alpha=config.framework.ernie_rna_alpha,
         )
-    elif split == "test":
+    else:
         dataset = TestDataset(
             dataset_path=Path(config.path.data_dir) / config.dataset.test_file,
             tokens=config.dataset.tokens,
             other_tokens=config.dataset.other_tokens,
             use_additional_token=config.experiment.use_additional_token,
         )
-    else:
-        raise ValueError(f"Invalid split name: {split}")
     
     g = torch.Generator()
     g.manual_seed(config.common.seed)
@@ -294,9 +298,9 @@ def create_batch_iterator(
     
     while True:
         for batch in loader:
-            batch["token_seqs"] = batch["token_seqs"].to(torch.long)
+            batch["token_seqs"] = batch["token_seqs"]
             if split != "test":
-                batch["token_seqs_masked"] = batch["token_seqs_masked"].to(torch.long)
+                batch["token_seqs_masked"] = batch["token_seqs_masked"]
             yield batch
             
         if split == "test":
