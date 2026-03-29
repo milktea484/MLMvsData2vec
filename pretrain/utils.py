@@ -38,7 +38,6 @@ def masking(
         masked_token_seq.shape,
         sptoken_prob,
         device=masked_token_seq.device,
-        dtype=torch.bfloat16,
     )
     sptoken_idxes = torch.bernoulli(probability_matrix).bool() # ベルヌーイ試行（確率判定）
     sptoken_idxes = sptoken_idxes.nonzero(as_tuple=True)[0].tolist()
@@ -85,18 +84,18 @@ def create_attention_bias(
     seq_row = token_seq.view(L, 1)  # (L, 1)
     seq_col = token_seq.view(1, L)  # (1, L)
     
-    attention_bias = torch.zeros((L, L), dtype=torch.bfloat16, device=token_seq.device)
+    attention_bias = torch.zeros((L, L), device=token_seq.device)
     
     A, C, G, U, MASK = [
         tokens.index(x) for x in ["A", "C", "G", "U", "<mask>"]
     ]
 
-    attention_bias += ((seq_row == A) & (seq_col == U)).bfloat16() * 2.0
-    attention_bias += ((seq_row == U) & (seq_col == A)).bfloat16() * 2.0
-    attention_bias += ((seq_row == C) & (seq_col == G)).bfloat16() * 3.0
-    attention_bias += ((seq_row == G) & (seq_col == C)).bfloat16() * 3.0
-    attention_bias += ((seq_row == G) & (seq_col == U)).bfloat16() * ernie_rna_alpha
-    attention_bias += ((seq_row == U) & (seq_col == G)).bfloat16() * ernie_rna_alpha
+    attention_bias += ((seq_row == A) & (seq_col == U)) * 2.0
+    attention_bias += ((seq_row == U) & (seq_col == A)) * 2.0
+    attention_bias += ((seq_row == C) & (seq_col == G)) * 3.0
+    attention_bias += ((seq_row == G) & (seq_col == C)) * 3.0
+    attention_bias += ((seq_row == G) & (seq_col == U)) * ernie_rna_alpha
+    attention_bias += ((seq_row == U) & (seq_col == G)) * ernie_rna_alpha
 
     # <mask> の行・列を-1.0に設定
     mask_positions = (token_seq_masked == MASK).nonzero(as_tuple=True)[0]
@@ -170,10 +169,9 @@ def validate_config(cfg: MainConfig):
         cfg (MainConfig): 検証する設定オブジェクト
     """
     
-    assert cfg.experiment.extract_repr_layers >= 0 and cfg.experiment.extract_repr_layers <= cfg.model_size.n_layers, \
-        "extract_repr_layers must be between 0 and n_layers."
-    
+    if not (cfg.experiment.extract_repr_layers >= 0 and cfg.experiment.extract_repr_layers <= cfg.model_size.n_layers):
+        raise ValueError("extract_repr_layers must be between 0 and n_layers.")
+
     if cfg.framework.name == "data2vec":
-        assert cfg.model_size.k_layers >= 1 and cfg.model_size.k_layers <= cfg.model_size.n_layers, \
-            "k_layers must be between 1 and n_layers for data2vec framework."
-    
+        if not (cfg.model_size.k_layers >= 1 and cfg.model_size.k_layers <= cfg.model_size.n_layers):
+            raise ValueError("k_layers must be between 1 and n_layers for data2vec framework.")
