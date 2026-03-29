@@ -415,7 +415,7 @@ class data2vecModel(BaseModel):
         
         # 量子化する場合はここに追記
         if self.use_quantize:
-            assert False, "Quantization not implemented yet."
+            raise NotImplementedError("Quantization not implemented yet.")
             
         # 量子化しない場合は通常のSmoothL1Lossを計算
         else:
@@ -563,7 +563,7 @@ class data2vecModel(BaseModel):
         # 損失計算
         # 量子化する場合はここに追記
         if self.use_quantize:
-            assert False, "Quantization not implemented yet."
+            raise NotImplementedError("Quantization not implemented yet.")
         
         # 通常のSmoothL1LossまたはMLMのcross_entropyを計算
         else:
