@@ -154,7 +154,7 @@ def validate_config(cfg: MainConfig):
         cfg (MainConfig): 検証する設定オブジェクト
     """
     
-    if (cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None) or cfg.dataset.embedding_file is not None:
+    if (cfg.pretrain.framework is None or cfg.pretrain.timestamp is None) and cfg.dataset.embedding_file is None:
         raise ValueError("Either pretrain.framework and pretrain.timestamp or dataset.embedding_file must be specified.")
     
 def setup_test_config():

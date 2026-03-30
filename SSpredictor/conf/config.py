@@ -50,10 +50,10 @@ class CommonConfig:
 
 @dataclass
 class PretrainConfig:
-    framework: str = None
+    framework: str | None = None
     """使用する事前学習モデルのフレームワーク"""
     
-    timestamp: str = None
+    timestamp: str | None = None
     """使用する事前学習モデルのタイムスタンプ"""
     
     checkpoint: str = MISSING
@@ -71,7 +71,7 @@ class PathConfig:
 class DatasetConfig:
     max_length: int = MISSING
     sequence_file: str = MISSING
-    embedding_file: str = None
+    embedding_file: str | None = None
     """すでにh5形式で保存されている配列特徴量のファイル名. 事前学習モデルの出力を使用する場合に必要"""
     train_file: str = MISSING
     validation_file: str = MISSING
@@ -82,7 +82,7 @@ class ExperimentConfig:
     name: str = MISSING
     """二次構造予測に使用する実験の名前 (必須)"""
     
-    additional_experiment_info: str = None
+    additional_experiment_info: str | None = None
     """実験の追加情報 (famfoldのfamilyやkfoldのk). 訓練, テストファイルのパス指定に使用する"""
     
     use_teacher: bool = MISSING
