@@ -3,3 +3,4 @@ data/
 results/
 .vscode/
 outputs/
+pretrain/pretrain.egg-info/
