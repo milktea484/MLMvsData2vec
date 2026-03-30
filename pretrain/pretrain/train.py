@@ -8,12 +8,13 @@ import hydra
 import numpy as np
 import torch
 import wandb
-from conf.config import MainConfig
-from dataset import create_batch_iterator
-from models import BaseModel
 from omegaconf import OmegaConf
 from tqdm import tqdm
-from utils import setup_config, validate_config
+
+from .conf.config import MainConfig
+from .dataset import create_batch_iterator
+from .models import BaseModel
+from .utils import setup_config, validate_config
 
 setup_config()
 

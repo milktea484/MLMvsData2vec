@@ -1,13 +1,14 @@
 import torch
-from conf.config import (
+from hydra.core.config_store import ConfigStore
+from omegaconf import OmegaConf
+
+from .conf.config import (
     AdamWConfig,
     CosineSchedulerConfig,
     MainConfig,
     MLMConfig,
     data2vecConfig,
 )
-from hydra.core.config_store import ConfigStore
-from omegaconf import OmegaConf
 
 
 def masking(

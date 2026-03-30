@@ -6,6 +6,7 @@ from pathlib import Path
 
 import hydra
 import numpy as np
+import pretrain.models as PretrainModels
 import torch
 from conf.config import MainConfig as TrainMainConfig
 from conf.test_config import MainConfig
@@ -14,11 +15,9 @@ from metrics import calculate_auc, update_confusion_matrix
 from models import KnotFoldModel
 from modules import CosineScheduler
 from omegaconf import OmegaConf
+from pretrain.conf.config import MainConfig as PretrainMainConfig
 from tqdm import tqdm
 from utils import get_embedding_dim, setup_test_config
-
-import pretrain.models as PretrainModels
-from pretrain.conf.config import MainConfig as PretrainMainConfig
 
 setup_test_config()
 

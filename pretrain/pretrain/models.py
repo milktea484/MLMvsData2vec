@@ -5,8 +5,9 @@ from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from conf.config import ExperimentConfig, MLMLossConfig, QuantizeConfig
-from modules import CommonModule
+
+from .conf.config import ExperimentConfig, MLMLossConfig, QuantizeConfig
+from .modules import CommonModule
 
 
 class BaseModel(nn.Module):

@@ -3,9 +3,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 from modules import ResNet2D
-from utils import apc, outer_concat, symmetrize
-
 from pretrain.models import BaseModel as PretrainModel
+from utils import apc, outer_concat, symmetrize
 
 
 class KnotFoldModel(nn.Module):

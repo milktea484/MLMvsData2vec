@@ -7,10 +7,9 @@ import numpy as np
 import pandas as pd
 import torch
 from conf.config import MainConfig
+from pretrain.conf.config import MainConfig as PretrainMainConfig
 from torch.utils.data import Dataset
 from utils import bp2matrix, seq2token
-
-from pretrain.conf.config import MainConfig as PretrainMainConfig
 
 
 class EmbeddingDataset(Dataset):

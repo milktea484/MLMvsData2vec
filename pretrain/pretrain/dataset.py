@@ -5,9 +5,10 @@ import h5py
 import numpy as np
 import pandas as pd
 import torch
-from conf.config import MainConfig
 from torch.utils.data import Dataset
-from utils import create_attention_bias, masking, seq2token
+
+from .conf.config import MainConfig
+from .utils import create_attention_bias, masking, seq2token
 
 
 class TrainingDataset(Dataset):
