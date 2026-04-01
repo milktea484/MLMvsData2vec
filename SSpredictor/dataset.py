@@ -141,7 +141,9 @@ class EmbeddingDataset(Dataset):
         max_length = max(lengths)
         
         # バッチ用のテンソルを初期化
-        token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
+        token_seqs_padded = None
+        if self.token_seqs is not None:
+            token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
         
         # attentionマスクの初期化
         attn_mask = torch.full((batch_size, 1, max_length, max_length), fill_value=-1e6)
@@ -150,6 +152,7 @@ class EmbeddingDataset(Dataset):
         bp_matrices_padded = -torch.ones((batch_size, max_length, max_length), dtype=torch.int8)
         
         # embeddingの初期化
+        embeddings_padded = None
         if self.cache_embedding_file is not None:
             # reference_embedding_dimと同じになるが, referenceがない場合も考えてembedding_dimを取得
             embedding_dim = embeddings[0].shape[0] if self.use_attention else embeddings[0].shape[-1]
@@ -159,15 +162,20 @@ class EmbeddingDataset(Dataset):
                 embeddings_padded = torch.zeros((batch_size, max_length, embedding_dim))
 
         # reference_embeddingの初期化
+        reference_embeddings_padded = None
         if self.reference_embedding_dim is not None:
             if self.use_attention:
                 reference_embeddings_padded = torch.zeros((batch_size, self.reference_embedding_dim, max_length, max_length))
             else:
                 reference_embeddings_padded = torch.zeros((batch_size, max_length, self.reference_embedding_dim))
         
+        assert token_seqs_padded is not None or embeddings_padded is not None or reference_embeddings_padded is not None, "At least one of token_seqs, embeddings, or reference_embeddings must be returned by the dataset."
+        
         # パディング
         for k in range(batch_size):
-            token_seqs_padded[k, :lengths[k]] = token_seqs[k]
+            if self.token_seqs is not None:
+                token_seqs_padded[k, :lengths[k]] = token_seqs[k]
+                
             attn_mask[k, :, :lengths[k], :lengths[k]] = 0
             bp_matrices_padded[k, :lengths[k], :lengths[k]] = bp_matrices[k]
             

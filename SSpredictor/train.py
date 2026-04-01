@@ -123,11 +123,11 @@ def main(cfg: MainConfig):
     
     # データローダーの設定
     train_loader = create_dataloader(config=cfg, split="train", pretrain_config=pretrain_cfg)
-    val_loader = {
+    val_loaders = {
         "train": create_dataloader(config=cfg, split="train", pretrain_config=pretrain_cfg),
     }
     if cfg.common.validation:
-        val_loader["validation"] = create_dataloader(config=cfg, split="validation", pretrain_config=pretrain_cfg)
+        val_loaders["validation"] = create_dataloader(config=cfg, split="validation", pretrain_config=pretrain_cfg)
     
     if cfg.model.name == "knotfold":
         ref_loader = create_dataloader(config=cfg, split="reference", pretrain_config=pretrain_cfg)
@@ -229,7 +229,7 @@ def main(cfg: MainConfig):
                             if cfg.common.validation:
                                 ref_model.eval()
                                 with torch.no_grad():
-                                    val_loader = val_loader["validation"]
+                                    val_loader = val_loaders["validation"]
                                     val_loss = 0.0
                                     for val_step in range(cfg.common.eval_steps):
                                         val_batch = next(iter(val_loader))
@@ -283,7 +283,7 @@ def main(cfg: MainConfig):
                     
                     # 学習を進める前にvalidationとwandbへのログ出力
                     if step % eval_interval == 0 or step == total_steps - 1:
-                        for split, val_loader in val_loader.items():
+                        for split, val_loader in val_loaders.items():
                             model.eval()
                             with torch.no_grad():
                                 val_loss = 0.0

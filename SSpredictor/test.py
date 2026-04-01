@@ -86,6 +86,8 @@ def main(cfg: MainConfig):
     else:
         if cfg.common.iterations > train_cfg.common.iterations:
             raise ValueError(f"Test config iterations {cfg.common.iterations} cannot be greater than train config iterations {train_cfg.common.iterations}.")
+    if cfg.common.iterations < 1:
+        raise ValueError(f"Test config iterations must be a positive integer.")
     
     kf_lambda_list = None
     if train_cfg.model.name == "knotfold":
@@ -144,7 +146,7 @@ def main(cfg: MainConfig):
         logger.info("No pretrain model specified. Will use embeddings from embedding_file provided.")
         
     # データローダーの設定
-    test_loader = create_dataloader(config=cfg, split="test", pretrain_config=pretrain_cfg)
+    test_loader = create_dataloader(config=train_cfg, split="test", pretrain_config=pretrain_cfg)
     
     # embedding次元数の取得
     embedding_dim = None
@@ -237,7 +239,7 @@ def main(cfg: MainConfig):
             "test_losses": [],
         }
         if train_cfg.model.name == "knotfold":
-            iter_results["ref_y_probs"] = []
+            iter_results["ref_logits"] = []
             iter_results["ref_test_losses"] = []
         
         with ctx, torch.inference_mode():
