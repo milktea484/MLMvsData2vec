@@ -8,9 +8,12 @@ import pandas as pd
 
 
 def main():
-    # script.pyの場所の親ディレクトリをカレントディレクトリにする
-    script_dir = Path(__file__).parent
-    os.chdir(script_dir)
+    # カレントディレクトリのパスを取得
+    current_dir = Path(__file__).parent.parent.resolve()
+    
+    # train.pyとtest.pyのpathを指定
+    train_script_path = current_dir / "SSpredictor/train.py"
+    test_script_path = current_dir / "SSpredictor/test.py"
     
     # sys.argv[0] は 'script.py' 自身だから無視して、[1:] 以降を取得する
     args = sys.argv[1:]
@@ -42,7 +45,7 @@ def main():
     # test.pyの引数に設定を追加
     test_args.append(f"SStrain_model_path.timestamp={timestamp}")
     test_args.append(f"path.timestamp={timestamp}")
-    train_args.append("experiment.name=ArchiveII_famfold")
+    test_args.append("experiment.name=ArchiveII_famfold")
     
     # train_argsにmodelの指定があるかどうかを確認する
     model_name = None
@@ -76,7 +79,7 @@ def main():
             
     pretrain_timestamp = None
     if any(arg.startswith("pretrain.timestamp=") for arg in test_args):
-        for arg in train_args:
+        for arg in test_args:
             if arg.startswith("pretrain.timestamp="):
                 pretrain_timestamp = arg.replace("pretrain.timestamp=", "", 1)
                 break
@@ -104,8 +107,8 @@ def main():
 
 
     # データセットの読み込みと分割
-    df = pd.read_csv(script_dir / "data/SS_data/ArchiveII.csv", index_col="id")
-    splits = pd.read_csv(script_dir / "data/SS_data/ArchiveII_famfold_splits.csv", index_col="id")
+    df = pd.read_csv(current_dir / "data/SS_data/ArchiveII.csv", index_col="id")
+    splits = pd.read_csv(current_dir / "data/SS_data/ArchiveII_famfold_splits.csv", index_col="id")
     
     # RNA family
     family = splits.fold.unique()
@@ -118,12 +121,12 @@ def main():
                 if specified_family in family:
                     family = [specified_family]
                 else:
-                    print(f"Warning: Specified family '{specified_family}' not found in splits. Using all families.")
+                    raise ValueError(f"Specified family '{specified_family}' is not in the dataset. Available families: {family}")
 
     for fam in family:
         train = df.loc[splits[(splits.fold == fam) & (splits.partition != "test")].index]
         test = df.loc[splits[(splits.fold == fam) & (splits.partition == "test")].index]
-        data_path = script_dir / f"data/SS_data/archiveii_famfold/{fam}/"
+        data_path = current_dir / f"data/SS_data/archiveii_famfold/{fam}/"
         os.makedirs(data_path, exist_ok=True)
         train.to_csv(data_path / "train.csv")
         test.to_csv(data_path / "test.csv")
@@ -131,21 +134,21 @@ def main():
         print(f"Prepared data for family '{fam}' with {len(train)} training samples and {len(test)} test samples.")
         
         # train.pyの実行
-        train_args.append(f"experiment.additional_experiment_info={fam}")
-        print(f"running train.py... (additional args: {train_args})")
+        train_args_for_fam = train_args + [f"experiment.additional_experiment_info={fam}"]
+        print(f"running train.py... (additional args: {train_args_for_fam})")
         # check=Trueを指定して, train.pyがエラーを出して終了した場合にここで例外が発生するようにする
-        subprocess.run(["python", "train.py"] + train_args, check=True)
+        subprocess.run(["python", str(train_script_path)] + train_args_for_fam, check=True)
 
         print("-" * 40)
 
         # test.pyの実行
-        test_args.append(f"experiment.additional_experiment_info={fam}")
-        print(f"running test.py... (additional args: {test_args})")
-        subprocess.run(["python", "test.py"] + test_args, check=True)
+        test_args_for_fam = test_args + [f"experiment.additional_experiment_info={fam}"]
+        print(f"running test.py... (additional args: {test_args_for_fam})")
+        subprocess.run(["python", str(test_script_path)] + test_args_for_fam, check=True)
         
     # test.pyの出力先の特定
     # f"results/SS_results/ArchiveII_famfold/{cfg.pretrain.framework}/{cfg.pretrain.timestamp}/{cfg.SStrain_model_path.model_name}/{cfg.SStrain_model_path.timestamp}/{cfg.experiment.additional_experiment_info}/test_results/{cfg.path.timestamp}/"
-    test_results_dir = script_dir / f"results/SS_results/ArchiveII_famfold"
+    test_results_dir = current_dir / f"results/SS_results/ArchiveII_famfold"
     
     ## pretrainまたはdataset.embedding_fileの情報をパスに追加
     if pretrain_framework is not None and pretrain_timestamp is not None:
