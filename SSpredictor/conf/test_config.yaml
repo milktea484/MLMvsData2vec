@@ -13,6 +13,9 @@ common:
   batch_size: 2
   use_gpu: true
   iterations: null
+  evaluation: true
+  prediction: true
+  save_probability_matrix: true
 
 pretrain:
   framework: null
@@ -36,4 +39,7 @@ evaluation:
 experiment:
   name: "???"
   additional_experiment_info: null
-  kf_lambda: null
+  kf_lambda_cfg:
+    min: null
+    max: null
+    step: null
