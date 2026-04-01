@@ -1,0 +1,181 @@
+import datetime
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+
+def main():
+    # script.pyの場所の親ディレクトリをカレントディレクトリにする
+    script_dir = Path(__file__).parent
+    os.chdir(script_dir)
+    
+    # sys.argv[0] は 'script.py' 自身だから無視して、[1:] 以降を取得する
+    args = sys.argv[1:]
+
+    train_args = []
+    test_args = []
+    others_args = []
+
+    # ターミナルから渡された引数をプレフィックスを見て振り分ける
+    for arg in args:
+        if arg.startswith("train:"):
+            # "train:" の部分を削ってリストに追加
+            train_args.append(arg.replace("train:", "", 1))
+        elif arg.startswith("test:"):
+            # "test:" の部分を削ってリストに追加
+            test_args.append(arg.replace("test:", "", 1))
+        else:
+            others_args.append(arg)
+            print(f"Warning: Argument '{arg}' does not start with 'train:' or 'test:'. It may be ignored.")
+            
+    # タイムスタンプの生成
+    timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+    
+    # train.pyの引数に設定を追加
+    train_args.append(f"path.timestamp={timestamp}")
+    train_args.append("dataset.sequence_file=ArchiveII.csv")
+    train_args.append("experiment.name=ArchiveII_famfold")
+    
+    # test.pyの引数に設定を追加
+    test_args.append(f"SStrain_model_path.timestamp={timestamp}")
+    test_args.append(f"path.timestamp={timestamp}")
+    train_args.append("experiment.name=ArchiveII_famfold")
+    
+    # train_argsにmodelの指定があるかどうかを確認する
+    model_name = None
+    if any(arg.startswith("model=") for arg in train_args):
+        # すでにmodelの指定がある場合は、そこからmodel_nameを抽出する
+        for arg in train_args:
+            if arg.startswith("model="):
+                model_name = arg.replace("model=", "", 1)
+                test_args.append(f"SStrain_model_path.model_name={model_name}")
+                break
+    else:
+        # modelの指定がない場合は、デフォルトでknotfoldを使用する
+        model_name = "knotfold"
+        train_args.append(f"model={model_name}")
+        test_args.append(f"SStrain_model_path.model_name={model_name}")
+
+    # test_argsでpretrainの指定があるかどうかを確認し, なければtrain_argsを見てpretrainの指定があるかどうかを確認する
+    # 基本はtrain_argsと同じものにする
+    pretrain_framework = None
+    if any(arg.startswith("pretrain.framework=") for arg in test_args):
+        for arg in test_args:
+            if arg.startswith("pretrain.framework="):
+                pretrain_framework = arg.replace("pretrain.framework=", "", 1)
+                break
+    elif any(arg.startswith("pretrain.framework=") for arg in train_args):
+        for arg in train_args:
+            if arg.startswith("pretrain.framework="):
+                pretrain_framework = arg.replace("pretrain.framework=", "", 1)
+                test_args.append(arg)
+                break
+            
+    pretrain_timestamp = None
+    if any(arg.startswith("pretrain.timestamp=") for arg in test_args):
+        for arg in train_args:
+            if arg.startswith("pretrain.timestamp="):
+                pretrain_timestamp = arg.replace("pretrain.timestamp=", "", 1)
+                break
+    elif any(arg.startswith("pretrain.timestamp=") for arg in train_args):
+        for arg in train_args:
+            if arg.startswith("pretrain.timestamp="):
+                pretrain_timestamp = arg.replace("pretrain.timestamp=", "", 1)
+                test_args.append(arg)
+                break
+
+    # 同様にdataset.embedding_fileの指定も確認する
+    # 基本はtrain_argsと同じものにする
+    dataset_embedding_file = None
+    if any(arg.startswith("dataset.embedding_file=") for arg in test_args):
+        for arg in test_args:
+            if arg.startswith("dataset.embedding_file="):
+                dataset_embedding_file = arg.replace("dataset.embedding_file=", "", 1)
+                break
+    elif any(arg.startswith("dataset.embedding_file=") for arg in train_args):
+        for arg in train_args:
+            if arg.startswith("dataset.embedding_file="):
+                dataset_embedding_file = arg.replace("dataset.embedding_file=", "", 1)
+                test_args.append(arg)
+                break
+
+
+    # データセットの読み込みと分割
+    df = pd.read_csv(script_dir / "data/SS_data/ArchiveII.csv", index_col="id")
+    splits = pd.read_csv(script_dir / "data/SS_data/ArchiveII_famfold_splits.csv", index_col="id")
+    
+    # RNA family
+    family = splits.fold.unique()
+    
+    ## 追加の引数で特定のfamilyを指定された場合はそのfamilyのみを使用する
+    if others_args:
+        for arg in others_args:
+            if arg.startswith("family="):
+                specified_family = arg.replace("family=", "", 1)
+                if specified_family in family:
+                    family = [specified_family]
+                else:
+                    print(f"Warning: Specified family '{specified_family}' not found in splits. Using all families.")
+
+    for fam in family:
+        train = df.loc[splits[(splits.fold == fam) & (splits.partition != "test")].index]
+        test = df.loc[splits[(splits.fold == fam) & (splits.partition == "test")].index]
+        data_path = script_dir / f"data/SS_data/archiveii_famfold/{fam}/"
+        os.makedirs(data_path, exist_ok=True)
+        train.to_csv(data_path / "train.csv")
+        test.to_csv(data_path / "test.csv")
+        
+        print(f"Prepared data for family '{fam}' with {len(train)} training samples and {len(test)} test samples.")
+        
+        # train.pyの実行
+        train_args.append(f"experiment.additional_experiment_info={fam}")
+        print(f"running train.py... (additional args: {train_args})")
+        # check=Trueを指定して, train.pyがエラーを出して終了した場合にここで例外が発生するようにする
+        subprocess.run(["python", "train.py"] + train_args, check=True)
+
+        print("-" * 40)
+
+        # test.pyの実行
+        test_args.append(f"experiment.additional_experiment_info={fam}")
+        print(f"running test.py... (additional args: {test_args})")
+        subprocess.run(["python", "test.py"] + test_args, check=True)
+        
+    # test.pyの出力先の特定
+    # f"results/SS_results/ArchiveII_famfold/{cfg.pretrain.framework}/{cfg.pretrain.timestamp}/{cfg.SStrain_model_path.model_name}/{cfg.SStrain_model_path.timestamp}/{cfg.experiment.additional_experiment_info}/test_results/{cfg.path.timestamp}/"
+    test_results_dir = script_dir / f"results/SS_results/ArchiveII_famfold"
+    
+    ## pretrainまたはdataset.embedding_fileの情報をパスに追加
+    if pretrain_framework is not None and pretrain_timestamp is not None:
+        test_results_dir = test_results_dir / pretrain_framework / pretrain_timestamp
+    elif dataset_embedding_file is not None:
+        test_results_dir /= Path(dataset_embedding_file).stem
+    
+    ## modelの情報をパスに追加
+    if model_name is not None:
+        test_results_dir /= model_name
+        
+    ## SStrain_model_path.timestampの情報をパスに追加
+    test_results_dir /= timestamp
+    
+    # 各familyのtest_resultsをまとめる
+    overall_results = []
+    for fam in family:
+        test_results_path = test_results_dir / fam / "test_results" / timestamp / "prediction_results.csv"
+        if test_results_path.exists():
+            fam_results = pd.read_csv(test_results_path)
+            fam_results["family"] = fam
+            overall_results.append(fam_results)
+        else:
+            print(f"Warning: Test results for family '{fam}' not found at {test_results_path}. Skipping.")
+            
+    if overall_results:
+        overall_results_df = pd.concat(overall_results, ignore_index=True)
+        overall_results_df.to_csv(test_results_dir / "overall_results.csv", index=False)
+        print(f"Saved overall results to {test_results_dir / 'overall_results.csv'}")
+        
+
+if __name__ == "__main__":
+    main()
