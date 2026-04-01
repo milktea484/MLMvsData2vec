@@ -1,12 +1,11 @@
 import numpy as np
 import torch
-from sklearn.metrics import auc, f1_score, precision_recall_fscore_support
+from sklearn import metrics
 
 
-def f1_triangular(gt: torch.Tensor, pred: torch.Tensor):
+def f1_score(gt: torch.Tensor, pred: torch.Tensor):
     """
     sklearnのf1_scoreを用いて二次構造行列の上三角行列（対角成分を除く）に対してF1スコアを計算する関数.
-    多分使わない.
     
     Args:        
         gt (torch.Tensor): 真の二次構造行列. shape = (L, L)
@@ -21,12 +20,15 @@ def f1_triangular(gt: torch.Tensor, pred: torch.Tensor):
     gt = gt[ind[0], ind[1]].numpy().ravel()
     pred = pred[ind[0], ind[1]].numpy().ravel()
 
-    return f1_score(gt, pred, zero_division=0)
+    if np.all(gt == 0) and np.all(pred == 0):
+        return 1.0, 1.0, 1.0
+    
+    return metrics.f1_score(gt, pred, average="binary", zero_division=0)
 
 
-def f1_strict(gt: torch.Tensor, pred: torch.Tensor):
+def precision_recall_f1(gt: torch.Tensor, pred: torch.Tensor):
     """
-    sklearnのprecision_recall_fscore_supportを用いて二次構造行列の上三角行列（対角成分を除く）に対してF1スコアを計算する関数.
+    sklearnのprecision_recall_fscore_supportを用いて二次構造行列の上三角行列（対角成分を除く）に対してF1スコア, Precision, Recallを計算する関数.
     Args:
         gt (torch.Tensor): 真の二次構造行列. shape = (L, L)
         pred (torch.Tensor): 予測された二次構造行列. shape = (L, L)
@@ -67,24 +69,29 @@ def f1_strict(gt: torch.Tensor, pred: torch.Tensor):
     if np.all(gt == 0) and np.all(pred == 0):
         return 1.0, 1.0, 1.0
 
-    pre, rec, f1, support = precision_recall_fscore_support(gt, pred, average="binary", zero_division=0)
+    pre, rec, f1, support = metrics.precision_recall_fscore_support(gt, pred, average="binary", zero_division=0)
 
     return pre, rec, f1
 
 
-def update_confusion_matrix(gt_bp_matrix: torch.Tensor, pred_bp_matrix: torch.Tensor, step: float, confusion_dict: dict):
+def calculate_confusion_matrix(gt_bp_matrix: torch.Tensor, pred_bp_matrix: torch.Tensor, step: float):
     """
-    混合行列 (tp, tn, fp, fn)を更新していく関数.
+    混合行列 (tp, tn, fp, fn)を計算する関数.
 
     Args:
         gt_bp_matrix (torch.Tensor): 真の二次構造行列. shape = (L, L)
         pred_bp_matrix (torch.Tensor): 予測された二次構造行列. shape = (L, L)
         step (float): 閾値のステップサイズ
-        confusion_dict (dict): tp, tn, fp, fn を格納する辞書
     
     Returns:
         dict: tp, tn, fp, fn を格納する辞書. 各要素はサイズlen(thresholds)のnumpy配列
     """
+    confusion_dict = {
+        "tp": None,
+        "tn": None,
+        "fp": None,
+        "fn": None,
+    }
 
     thresholds = np.arange(0, 1+step, step)
 
@@ -93,11 +100,11 @@ def update_confusion_matrix(gt_bp_matrix: torch.Tensor, pred_bp_matrix: torch.Te
 
     pred_bp_matrix = np.greater_equal(pred_bp_matrix, thresholds) # (L*L, 1) -> (L*L, len(thresholds))
     
-    # 各閾値に対して混合行列を更新. 
-    confusion_dict["tp"] += np.sum(np.logical_and(pred_bp_matrix, gt_bp_matrix), axis=0)
-    confusion_dict["tn"] += np.sum(np.logical_and(np.logical_not(pred_bp_matrix), np.logical_not(gt_bp_matrix)), axis=0)
-    confusion_dict["fp"] += np.sum(np.logical_and(pred_bp_matrix, np.logical_not(gt_bp_matrix)), axis=0)
-    confusion_dict["fn"] += np.sum(np.logical_and(np.logical_not(pred_bp_matrix), gt_bp_matrix), axis=0)
+    # 各閾値に対して混合行列を計算. 
+    confusion_dict["tp"] = np.sum(np.logical_and(pred_bp_matrix, gt_bp_matrix), axis=0)
+    confusion_dict["tn"] = np.sum(np.logical_and(np.logical_not(pred_bp_matrix), np.logical_not(gt_bp_matrix)), axis=0)
+    confusion_dict["fp"] = np.sum(np.logical_and(pred_bp_matrix, np.logical_not(gt_bp_matrix)), axis=0)
+    confusion_dict["fn"] = np.sum(np.logical_and(np.logical_not(pred_bp_matrix), gt_bp_matrix), axis=0)
 
     return confusion_dict
 
@@ -112,10 +119,10 @@ def calculate_auc(confusion_dict: dict):
         tuple[dict, dict]: ROC曲線とPR曲線の図示するための材料を格納する辞書と, ROC AUCとPR AUCを格納する辞書
     """
 
-    tp = confusion_dict["tp"]
-    tn = confusion_dict["tn"]
-    fp = confusion_dict["fp"]
-    fn = confusion_dict["fn"]
+    tp: np.ndarray = confusion_dict["tp"]
+    tn: np.ndarray = confusion_dict["tn"]
+    fp: np.ndarray = confusion_dict["fp"]
+    fn: np.ndarray = confusion_dict["fn"]
 
     pre = tp / (tp + fp).astype(float)  # precision
     rec = tp / (tp + fn).astype(float)  # recall (true positive rate)
@@ -123,13 +130,13 @@ def calculate_auc(confusion_dict: dict):
 
     pre[np.isnan(pre)] = 1
 
-    roc_auc = auc(fpr, rec)
-    pr_auc = auc(rec, pre)
+    roc_auc = metrics.auc(fpr, rec)
+    pr_auc = metrics.auc(rec, pre)
 
     fig_materials = {
         "fpr": fpr,
-        "pre": pre,
-        "rec": rec,
+        "precision": pre,
+        "recall": rec,
     }
 
     aucs = {
