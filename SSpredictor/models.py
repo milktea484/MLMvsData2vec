@@ -1,10 +1,16 @@
+import os
+import subprocess
+import tempfile
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn as nn
+from metrics import precision_recall_f1
 from modules import ResNet2D
-from pretrain.models import BaseModel as PretrainModel
-from utils import apc, outer_concat, symmetrize
+from utils import apc, bp2matrix, outer_concat, symmetrize
+
+import pretrain
 
 
 class KnotFoldModel(nn.Module):
@@ -21,7 +27,7 @@ class KnotFoldModel(nn.Module):
     def __init__(
         self,
         arch: dict[str, Any],
-        pretrain_model: PretrainModel | None,
+        pretrain_model: pretrain.models.BaseModel | None,
         embedding_dim: int,
         use_attention: bool,
         device: torch.device,
@@ -92,13 +98,12 @@ class KnotFoldModel(nn.Module):
 
         Returns:
             Union: splitによって異なる.
-            
-            - train: torch.Tensor（損失値）
-            - test:
-            {
-                "loss": torch.Tensor（損失値）
-                "logits": torch.Tensor（予測された二次構造行列のロジット. shape = (B, L, L)）
-            }
+                - train: torch.Tensor（損失値）
+                - test:
+                {
+                    "loss": torch.Tensor（損失値）
+                    "logits": torch.Tensor（予測された二次構造行列のロジット. shape = (B, L, L)）
+                }
         """
         
         # 正規化
@@ -248,29 +253,151 @@ class KnotFoldModel(nn.Module):
         }
     
     @staticmethod
+    @torch.inference_mode()
     def predict(
-        gt_bp_matrix: torch.Tensor,
-        pred_bp_matrix: torch.Tensor,
-        ref_bp_matrix: torch.Tensor,
-        kf_lambda: list[float]
+        batch_list: list[dict[str, Any]],
+        kf_lambda_list: list[float]
     ):
         """
-        二次構造行列の予測を行う関数. KnotFoldのアルゴリズムを使用する.
+        二次構造行列の予測を行う関数. KnotFoldのアルゴリズムを使用する. 最適なkf_lambdaを選択するように
         Args:
-            gt_bp_matrix (torch.Tensor): 真の二次構造行列. shape = (B, L, L)
-            pred_bp_matrix (torch.Tensor): 予測された二次構造確率行列. shape = (B, L, L)
-            ref_bp_matrix (torch.Tensor): 参照モデルの二次構造行列確率行列. shape = (B, L, L)
-            kf_lambda (list[float]): min cost flow アルゴリズムで使用するλ.
+            batch_list (list[dict[str, Any]]): バッチデータのリスト (len = B). 各バッチは以下のキーを持つことを想定.
+                - seq_id: 配列のID
+                - sequence: 配列の文字列
+                - length: 配列の長さ
+                - gt_bp_matrix: 真の二次構造行列. shape = (L, L)
+                - pred_bp_prob: 予測された二次構造行列の確率. shape = (L, L)
+                - ref_bp_prob: 参照二次構造行列の確率. shape = (L, L)
+            kf_lambda_list (list[float]): 最小コストフローアルゴリズムで使用するλのリスト.
+            
         Returns:
-            torch.Tensor: 予測された二次構造行列. shape = (B, L, L)
+            dict:
+            {  
+                "kf_lambda_results": kf_lambdaの値をキー, f1スコア,precision,recallをもつ辞書を値とする辞書.   
+                "prediction_results": kf_lambdaが最適な場合の予測結果のリスト (len = B). 各要素は以下のキーを持つことを想定.
+                    - seq_id: 配列のID
+                    - sequence: 配列の文字列
+                    - gt_bp_matrix: 真の二次構造行列. shape = (L, L)
+                    - pred_bp_matrix: 予測された二次構造行列. shape = (L, L)
+                    - pairs: 予測された塩基対のリスト. 各要素は (i, j) の形式で, i番目とj番目の塩基がペアであることを示す.
+                    - scores: 予測された二次構造と真の二次構造のF1スコア, Precision, Recall.
+            }
         """
         
-        # ここにKnotFoldのアルゴリズムを実装する
+        # 結果の保存用
+        results = {
+            "kf_lambda_results": {},
+            "prediction_results": [],
+        }
         
-        if kf_lambda is None:
-            kf_lambda = self.kf_lambda
+        # 最大のF1スコアを出すkf_lambdaを選択するための変数
+        best_kf_lambda = None
+        best_f1 = -1.0
         
-        # --- IGNORE ---
+        # 前のkf_lambdaのF1スコアと比較して, 連続して3回改善がない場合は終了するための変数
+        prev_f1 = -1.0
+        no_improve_count = 0
+        
+        # kf_lambdaのリストをループして最適なものを選択する
+        for kf_lambda in kf_lambda_list:
+            # batchごとの結果の保存用
+            prediction_results = []
+            
+            # スコアの平均
+            avg_f1 = 0.0
+            avg_pre = 0.0
+            avg_rec = 0.0
+            
+            # 各配列について予測を行う
+            for batch in batch_list:
+                seq_id = batch["seq_id"]
+                sequence = batch["sequence"]
+                length = batch["length"]
+                gt_bp_matrix = batch["gt_bp_matrix"].detach().cpu() # (L, L)
+                pred_bp_prob = batch["pred_bp_prob"].detach().cpu() # (L, L)
+                ref_bp_prob = batch["ref_bp_prob"].detach().cpu() # (L, L)
+
+                here = os.path.dirname(__file__)
+                with tempfile.TemporaryDirectory() as d:
+                    fg: np.ndarray = pred_bp_prob.numpy()
+                    bg: np.ndarray = ref_bp_prob.numpy()
+                    with open(os.path.join(d, "prior.mat"), 'w') as fp:
+                        for i in range(fg.shape[0]):
+                            for j in range(fg.shape[0]):
+                                fp.write("%.10f" % fg[i][j])
+                                fp.write("\t")
+                            fp.write("\n")
+                    with open(os.path.join(d, "reference.mat"), 'w') as fp:
+                        for i in range(bg.shape[0]):
+                            for j in range(bg.shape[0]):
+                                fp.write("%.10f" % bg[i][j])
+                                fp.write("\t")
+                            fp.write("\n")
+
+                    mincostflowcmd = f"{here}/knotfold/KnotFold_mincostflow {d}/prior.mat {d}/reference.mat {kf_lambda}"
+                    p = subprocess.run(mincostflowcmd, shell=True, capture_output=True)
+                    assert p.returncode == 0
+                    pairs = []
+                    for line in p.stdout.decode().split("\n"):
+                        if len(line) == 0:
+                            continue
+                        l, r = line.split()
+                        pairs.append([int(l), int(r)])
+                
+                pred_bp_matrix = bp2matrix(length, pairs).detach().cpu() # (L, L)
+                
+                # スコアの計算
+                pre, rec, f1 = precision_recall_f1(gt_bp_matrix, pred_bp_matrix)
+                avg_f1 += f1
+                avg_pre += pre
+                avg_rec += rec
+                
+                prediction_results.append({
+                    "seq_id": seq_id,
+                    "sequence": sequence,
+                    "gt_bp_matrix": gt_bp_matrix,
+                    "pred_bp_matrix": pred_bp_matrix,
+                    "pairs": pairs,
+                    "scores": {
+                        "f1": f1,
+                        "precision": pre,
+                        "recall": rec,
+                    },
+                })
+
+            # スコアの平均を計算
+            avg_f1 /= len(batch_list)
+            avg_pre /= len(batch_list)
+            avg_rec /= len(batch_list)
+            
+            # 今回のkf_lambdaのスコアを保存
+            results["kf_lambda_results"][kf_lambda] = {
+                "is_optimal": False,
+                "f1": avg_f1,
+                "precision": avg_pre,
+                "recall": avg_rec,
+            }
+            
+            # 最適なkf_lambdaを更新
+            if avg_f1 > best_f1:
+                best_f1 = avg_f1
+                best_kf_lambda = kf_lambda
+                results["prediction_results"] = prediction_results
+                
+            # 直前のkf_lambdaのスコアと比較して改善がない場合が3回続いたら終了
+            if prev_f1 != -1.0 and avg_f1 <= prev_f1:
+                no_improve_count += 1
+                if no_improve_count >= 3:
+                    break
+            else:
+                no_improve_count = 0
+
+            prev_f1 = avg_f1
+            
+        results["kf_lambda_results"][best_kf_lambda]["is_optimal"] = True
+            
+        return results
+
     
     def _load_state_dict(self, state_dict: dict):
         """
