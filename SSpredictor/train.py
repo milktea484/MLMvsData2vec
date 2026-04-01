@@ -10,6 +10,7 @@ from pathlib import Path
 
 import hydra
 import numpy as np
+import pretrain.models as PretrainModels
 import torch
 import wandb
 from conf.config import MainConfig
@@ -17,11 +18,9 @@ from dataset import create_dataloader
 from models import KnotFoldModel
 from modules import CosineScheduler
 from omegaconf import OmegaConf
+from pretrain.conf.config import MainConfig as PretrainMainConfig
 from tqdm import tqdm
 from utils import get_embedding_dim, setup_config, validate_config
-
-import pretrain.models as PretrainModels
-from pretrain.conf.config import MainConfig as PretrainMainConfig
 
 setup_config()
 
