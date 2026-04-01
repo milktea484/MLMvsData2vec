@@ -59,7 +59,7 @@ class EmbeddingDataset(Dataset):
         ) if use_pretrain_model else None
         
         # 埋め込みのキャッシュファイルのパス
-        self.cache_embedding_file = embedding_path
+        self.cache_embedding_path = embedding_path
         
         # 参照埋め込みの次元数 (KnotFoldで必要な場合)
         self.reference_embedding_dim = reference_embedding_dim
@@ -67,6 +67,13 @@ class EmbeddingDataset(Dataset):
         # その他
         self.tokens = tokens
         self.use_attention = use_attention
+        
+        self._cache_embedding_hdf = None  # 埋め込みのhdfファイルのハンドル. 最初はNoneで, 必要になったときに開く
+    
+    def _get_hdf(self):
+        if self._cache_embedding_hdf is None:
+            self._cache_embedding_hdf = h5py.File(self.cache_embedding_path, "r")
+        return self._cache_embedding_hdf
     
     def __len__(self):
         return len(self.seq_ids)
@@ -83,23 +90,23 @@ class EmbeddingDataset(Dataset):
         
         # キャッシュされた埋め込みがある場合はそれを読み込む
         embedding = None
-        if self.cache_embedding_file is not None:
-            with h5py.File(self.cache_embedding_file, "r") as hdf:
-                embedding = torch.from_numpy(hdf[seq_id][()])  # shape(L, E) or (E, L, L)
-                
-                # use_attentionの設定変更 
-                if embedding.ndim == 3:
-                    self.use_attention = True
-                else:
-                    self.use_attention = False
-                
-                # 埋め込みの次元数を取得
-                if self.reference_embedding_dim == -1:
-                    self.reference_embedding_dim = embedding.shape[0] if self.use_attention else embedding.shape[-1]
-                
-                # 配列長の取得
-                if length == -1:
-                    length = embedding.shape[-1] if self.use_attention else embedding.shape[0]
+        if self.cache_embedding_path is not None:
+            hdf = self._get_hdf()
+            embedding = torch.from_numpy(hdf[seq_id][()])  # shape(L, E) or (E, L, L)
+            
+            # use_attentionの設定変更 
+            if embedding.ndim == 3:
+                self.use_attention = True
+            else:
+                self.use_attention = False
+            
+            # 埋め込みの次元数を取得
+            if self.reference_embedding_dim == -1:
+                self.reference_embedding_dim = embedding.shape[0] if self.use_attention else embedding.shape[-1]
+            
+            # 配列長の取得
+            if length == -1:
+                length = embedding.shape[-1] if self.use_attention else embedding.shape[0]
         
         # 塩基対行列の生成
         bp_matrix = bp2matrix(length, self.base_pairs[idx])
@@ -133,7 +140,7 @@ class EmbeddingDataset(Dataset):
         token_seqs = [b["token_seq"] for b in batch] if self.token_seqs is not None else None
         bp_matrices = [b["bp_matrix"] for b in batch]
         lengths = [b["length"] for b in batch]
-        embeddings = [b["embedding"] for b in batch] if self.cache_embedding_file is not None else None
+        embeddings = [b["embedding"] for b in batch] if self.cache_embedding_path is not None else None
         reference_embeddings = [b["reference_embedding"] for b in batch] if self.reference_embedding_dim is not None else None
         
         # バディング用にサイズを取得
@@ -153,7 +160,7 @@ class EmbeddingDataset(Dataset):
         
         # embeddingの初期化
         embeddings_padded = None
-        if self.cache_embedding_file is not None:
+        if self.cache_embedding_path is not None:
             # reference_embedding_dimと同じになるが, referenceがない場合も考えてembedding_dimを取得
             embedding_dim = embeddings[0].shape[0] if self.use_attention else embeddings[0].shape[-1]
             if self.use_attention:
@@ -179,7 +186,7 @@ class EmbeddingDataset(Dataset):
             attn_mask[k, :, :lengths[k], :lengths[k]] = 0
             bp_matrices_padded[k, :lengths[k], :lengths[k]] = bp_matrices[k]
             
-            if self.cache_embedding_file is not None:
+            if self.cache_embedding_path is not None:
                 if self.use_attention:
                     embeddings_padded[k, :, :lengths[k], :lengths[k]] = embeddings[k] # (B, E, L, L)
                 else:
@@ -291,7 +298,7 @@ def create_dataloader(config: MainConfig, split: str, pretrain_config: PretrainM
     
     return dataloader
 
-def create_batch_iterator(config: MainConfig, pretrain_config: PretrainMainConfig, split: str):
+def create_batch_iterator(config: MainConfig, split: str, pretrain_config: PretrainMainConfig=None) -> iter:
     """
     バッチイテレータの作成関数
     Args:
@@ -305,7 +312,7 @@ def create_batch_iterator(config: MainConfig, pretrain_config: PretrainMainConfi
     
     assert split in ["train", "validation", "test", "reference"], "split must be 'train', 'validation', 'test', or 'reference'"
     
-    loader = create_dataloader(config=config, pretrain_config=pretrain_config, split=split)
+    loader = create_dataloader(config=config, split=split, pretrain_config=pretrain_config)
     
     epoch = 0
     while True:

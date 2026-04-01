@@ -186,7 +186,7 @@ def main(cfg: MainConfig):
         
         # 訓練済みモデルの重みの読み込み
         model._load_state_dict(torch.load(train_model_path / f"weights/prior_{iteration}.pth", map_location=device))
-        models.append(copy.deepcopy(model))
+        models.append(model)
         
         # reference用のモデルの動的インポートと初期化 (今はknotfoldのみ)
         if train_cfg.model.name == "knotfold":
@@ -201,7 +201,7 @@ def main(cfg: MainConfig):
             
             # reference用のモデルの重みの読み込み
             ref_model._load_state_dict(torch.load(train_model_path / f"weights/reference_{iteration}.pth", map_location=device))
-            ref_models.append(copy.deepcopy(ref_model))
+            ref_models.append(ref_model)
 
     # 全体の結果の保存
     overall_results = {"test_losses": []}

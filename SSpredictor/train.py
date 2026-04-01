@@ -14,7 +14,7 @@ import pretrain.models as PretrainModels
 import torch
 import wandb
 from conf.config import MainConfig
-from dataset import create_dataloader
+from dataset import create_batch_iterator, create_dataloader
 from models import KnotFoldModel
 from modules import CosineScheduler
 from omegaconf import OmegaConf
@@ -123,11 +123,12 @@ def main(cfg: MainConfig):
     
     # データローダーの設定
     train_loader = create_dataloader(config=cfg, split="train", pretrain_config=pretrain_cfg)
-    val_loaders = {
-        "train": create_dataloader(config=cfg, split="train", pretrain_config=pretrain_cfg),
+    # 評価用は無限バッチイテレータを使い, DataLoader の取り尽くしや都度 iterator を作り直すコストを避ける
+    val_iterators = {
+        "train": create_batch_iterator(config=cfg, split="train", pretrain_config=pretrain_cfg),
     }
     if cfg.common.validation:
-        val_loaders["validation"] = create_dataloader(config=cfg, split="validation", pretrain_config=pretrain_cfg)
+        val_iterators["validation"] = create_batch_iterator(config=cfg, split="validation", pretrain_config=pretrain_cfg)
     
     if cfg.model.name == "knotfold":
         ref_loader = create_dataloader(config=cfg, split="reference", pretrain_config=pretrain_cfg)
@@ -229,12 +230,13 @@ def main(cfg: MainConfig):
                             if cfg.common.validation:
                                 ref_model.eval()
                                 with torch.no_grad():
-                                    val_loader = val_loaders["validation"]
+                                    val_iterator = val_iterators["validation"]
                                     val_loss = 0.0
                                     for val_step in range(cfg.common.eval_steps):
-                                        val_batch = next(iter(val_loader))
+                                        # create_batch_iterator は (batch, epoch) を返すので batch のみ取り出す
+                                        val_batch, _ = next(val_iterator)
                                         val_loss += ref_model._test(val_batch)["loss"].item()
-                                    val_loss /= len(val_loader)
+                                    val_loss /= cfg.common.eval_steps
                                     wandb.log({f"ref_val_loss_{iteration}": val_loss}, step=step)
                                     
                                     # モデルの保存
@@ -283,14 +285,15 @@ def main(cfg: MainConfig):
                     
                     # 学習を進める前にvalidationとwandbへのログ出力
                     if step % eval_interval == 0 or step == total_steps - 1:
-                        for split, val_loader in val_loaders.items():
+                        for split, val_iterator in val_iterators.items():
                             model.eval()
                             with torch.no_grad():
                                 val_loss = 0.0
                                 for val_step in range(cfg.common.eval_steps):
-                                    val_batch = next(iter(val_loader))
+                                    # create_batch_iterator は (batch, epoch) を返すので batch のみ取り出す
+                                    val_batch, _ = next(val_iterator)
                                     val_loss += model._test(val_batch)["loss"].item()
-                                val_loss /= len(val_loader)
+                                val_loss /= cfg.common.eval_steps
                                 wandb.log({f"{split}_loss_{iteration}": val_loss}, step=step)
                                 
                                 # モデルの保存

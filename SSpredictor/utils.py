@@ -146,7 +146,7 @@ def visualize_auc(fig_materials: dict, output_path: Path):
 
     # ROC曲線の描画
     axes[0].plot(fpr, fpr, linestyle="--", label="Random")
-    axes[0].plot(fpr, precision, marker=".", label="ROC curve")
+    axes[0].plot(fpr, recall, marker=".", label="ROC curve")
     axes[0].set_xlabel("False Positive Rate")
     axes[0].set_ylabel("True Positive Rate")
     axes[0].set_title("ROC Curve")
