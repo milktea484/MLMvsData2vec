@@ -258,7 +258,7 @@ def create_dataloader(config: MainConfig, split: str):
         )
     else:
         dataset = TestDataset(
-            dataset_path=Path(config.path.data_dir) / config.dataset.test_file,
+            dataset_path=Path(config.path.test_data_dir) / config.dataset.test_file,
             tokens=config.dataset.tokens,
             other_tokens=config.dataset.other_tokens,
             use_additional_token=config.experiment.use_additional_token,

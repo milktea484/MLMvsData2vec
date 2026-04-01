@@ -352,7 +352,7 @@ class data2vecModel(BaseModel):
         self.k_layers = arch["k_layers"]
         
         # モデルの構築
-        from modules import EMAModule
+        from .modules import EMAModule
         self.student_model = CommonModule(arch, self.padding_idx, self.num_tokens, device)
         self.ema = EMAModule(self.student_model, self.ema_decay, device)
         
