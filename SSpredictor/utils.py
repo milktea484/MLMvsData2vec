@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from conf.config import AdamWConfig, KnotFoldConfig, MainConfig
 from conf.test_config import MainConfig as TestMainConfig
@@ -125,6 +129,59 @@ def apc(x: torch.Tensor):
     normalized = x - avg
     
     return normalized
+
+def visualize_auc(fig_materials: dict, output_path: Path):
+    """
+    ROC曲線とPR曲線を描画する関数
+    Args:
+        fig_materials (dict): ROC曲線とPR曲線の図示するための材料を格納する辞書
+        output_path (Path): 出力ファイルのパス
+    """
+    
+    fpr = fig_materials["fpr"]
+    precision = fig_materials["precision"]
+    recall = fig_materials["recall"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+    # ROC曲線の描画
+    axes[0].plot(fpr, fpr, linestyle="--", label="Random")
+    axes[0].plot(fpr, precision, marker=".", label="ROC curve")
+    axes[0].set_xlabel("False Positive Rate")
+    axes[0].set_ylabel("True Positive Rate")
+    axes[0].set_title("ROC Curve")
+    axes[0].legend()
+
+    # PR曲線の描画
+    axes[1].plot(recall, precision, marker=".", label="PR curve")
+    axes[1].set_xlabel("Recall")
+    axes[1].set_ylabel("Precision")
+    axes[1].set_title("Precision-Recall Curve")
+    axes[1].legend()
+
+    fig.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+    
+def visualize_probability_matrix(gt_bp_matrix: torch.Tensor, probability_matrix: torch.Tensor, output_path: Path):
+    """
+    予測された塩基対確率行列を描画する関数
+    Args:
+        gt_bp_matrix (torch.Tensor): shape = L x Lの真の二次構造行列
+        probability_matrix (torch.Tensor): shape = L x Lの塩基対確率行列
+        output_path (Path): 出力ファイルのパス
+    """
+    
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    axes[0].imshow(gt_bp_matrix, cmap="viridis", vmin=0, vmax=1)
+    axes[0].set_title("Ground Truth Base Pair Matrix")
+    im = axes[1].imshow(probability_matrix, cmap="viridis", vmin=0, vmax=1)
+    axes[1].set_title("Predicted Base Pair Probability Matrix")
+    fig.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+    
 
 def setup_config():
     """
