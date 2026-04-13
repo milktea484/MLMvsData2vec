@@ -11,12 +11,16 @@
 ```bash
 python scripts/run_archiveii_famfold.py \
   "train:pretrain.framework=data2vec" \
-  "train:pretrain.timestamp=20260316T130913" \
+  "train:pretrain.timestamp=20260307T153057" \
   "train:pretrain.checkpoint=final" \
   "train:model.arch.use_simple=true" \
-  "test:experiment.kf_lambda_cfg.min=0.0" \
-  "test:experiment.kf_lambda_cfg.max=2.0" \
-  "test:experiment.kf_lambda_cfg.step=0.1"
+  "test:experiment.kf_lambda_cfg.min=-1.0" \
+  "test:experiment.kf_lambda_cfg.max=5.0" \
+  "test:experiment.kf_lambda_cfg.step=0.2"
+```
+一行バージョン
+```bash
+python scripts/run_archiveii_famfold.py train:pretrain.framework=data2vec train:pretrain.timestamp=20260406T124643 train:pretrain.checkpoint=final train:model.arch.use_simple=true test:experiment.kf_lambda_cfg.min=-1.0 test:experiment.kf_lambda_cfg.max=5.0 test:experiment.kf_lambda_cfg.step=0.2
 ```
 
 2. 事前計算済みの埋め込みファイルを用いる場合（simple アーキテクチャ）
@@ -25,9 +29,13 @@ python scripts/run_archiveii_famfold.py \
 python scripts/run_archiveii_famfold.py \
   "train:dataset.embedding_file=ArchiveII_data2vec.h5" \
   "train:model.arch.use_simple=true" \
-  "test:experiment.kf_lambda_cfg.min=0.0" \
-  "test:experiment.kf_lambda_cfg.max=2.0" \
-  "test:experiment.kf_lambda_cfg.step=0.1"
+  "test:experiment.kf_lambda_cfg.min=-1.0" \
+  "test:experiment.kf_lambda_cfg.max=5.0" \
+  "test:experiment.kf_lambda_cfg.step=0.2"
+```
+一行バージョン
+```bash
+python scripts/run_archiveii_famfold.py train:dataset.embedding_file=ArchiveII_data2vec.h5 train:model.arch.use_simple=true test:experiment.kf_lambda_cfg.min=-1.0 test:experiment.kf_lambda_cfg.max=5.0 test:experiment.kf_lambda_cfg.step=0.2
 ```
 
 補足:
