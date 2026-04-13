@@ -49,6 +49,8 @@ def main(cfg: MainConfig):
         output_dir = output_dir / cfg.experiment.additional_experiment_info
         
     output_dir.mkdir(parents=True, exist_ok=True)
+    weight_dir = output_dir / "weights"
+    weight_dir.mkdir(parents=True, exist_ok=True)
     
     # logの設定
     logging.basicConfig(
@@ -102,6 +104,14 @@ def main(cfg: MainConfig):
         pretrain_cfg_path = pretrain_model_path / f"train_config/.hydra/config.yaml"
         pretrain_cfg: PretrainMainConfig = OmegaConf.load(pretrain_cfg_path)
         
+        # 互換パッチ: 古い pretrain 実験では `_target_` が "models.*" になっていることがあるため
+        # 現在のパッケージ構成に合わせてフルパスに書き換える
+        target = getattr(pretrain_cfg.framework, "_target_", None)
+        if target == "models.data2vecModel":
+            pretrain_cfg.framework._target_ = "pretrain.models.data2vecModel"
+        elif target == "models.MLMModel":
+            pretrain_cfg.framework._target_ = "pretrain.models.MLMModel"
+        
         pretrain_model: PretrainModels.BaseModel = hydra.utils.instantiate(
             pretrain_cfg.framework,
             padding_idx=pretrain_cfg.dataset.tokens.index("<pad>"),
@@ -141,7 +151,7 @@ def main(cfg: MainConfig):
     if cfg.dataset.embedding_file is None:
         assert pretrain_model is not None, "Either a pretrain model or an embedding file must be specified to determine the embedding dimension."
         if cfg.experiment.use_attention:
-            embedding_dim = pretrain_cfg.framework.n_layers * pretrain_cfg.framework.n_heads
+            embedding_dim = pretrain_cfg.framework.arch.n_layers * pretrain_cfg.framework.arch.n_heads
         else:
             embedding_dim = pretrain_cfg.model_size.embed_dim
     else:
@@ -211,9 +221,13 @@ def main(cfg: MainConfig):
             best_model_state_dict = None
             save_epoch = 0
             
+            # wandbのログ出力用
+            ref_loss_log = {}
+            ref_val_loss_log = {}
+            
             ref_model.train()
             logger.info("--------Start training reference model--------")
-            with tqdm(ref_total_steps, desc="Reference Model Training") as ref_pbar:
+            with tqdm(total=ref_total_steps, desc="Reference Model Training") as ref_pbar:
                 for ref_epoch in range(cfg.model.max_ref_epochs):
                     for ref_batch_idx, ref_batch in enumerate(ref_loader):
                         with ctx:
@@ -223,9 +237,9 @@ def main(cfg: MainConfig):
                         
                         step = ref_epoch * len(ref_loader) + ref_batch_idx
                         
-                        # 学習を進める前にvalidationとwandbへのログ出力
+                        # 学習を進める前にvalidation
                         if step % eval_interval == 0 or step == ref_total_steps - 1:
-                            wandb.log({f"ref_loss_{iteration}": ref_loss.item()}, step=step)
+                            ref_loss_log[step] = ref_loss.item()
                             
                             if cfg.common.validation:
                                 ref_model.eval()
@@ -237,18 +251,18 @@ def main(cfg: MainConfig):
                                         val_batch, _ = next(val_iterator)
                                         val_loss += ref_model._test(val_batch)["loss"].item()
                                     val_loss /= cfg.common.eval_steps
-                                    wandb.log({f"ref_val_loss_{iteration}": val_loss}, step=step)
+                                    ref_val_loss_log[step] = val_loss
                                     
                                     # モデルの保存
                                     if val_loss < min_loss:
                                         min_loss = val_loss
                                         best_model_state_dict = copy.deepcopy(ref_model.state_dict())
-                                        save_epoch = step / eval_interval
+                                        save_epoch = step / (eval_interval * cfg.common.eval_per_epoch)
                             else:
                                 if ref_loss < min_loss:
                                     min_loss = ref_loss
                                     best_model_state_dict = copy.deepcopy(ref_model.state_dict())
-                                    save_epoch = step / eval_interval
+                                    save_epoch = step / (eval_interval * cfg.common.eval_per_epoch)
                                     
                                 ref_model.train()
                         
@@ -285,6 +299,15 @@ def main(cfg: MainConfig):
                     
                     # 学習を進める前にvalidationとwandbへのログ出力
                     if step % eval_interval == 0 or step == total_steps - 1:
+                        # referenceモデルのwandbへのログ出力 (knotfoldのみ)
+                        if cfg.model.name == "knotfold":
+                            ref_loss = ref_loss_log.get(step, None)
+                            ref_val_loss = ref_val_loss_log.get(step, None)
+                            if ref_loss is not None:
+                                wandb.log({f"reference_loss_{iteration}": ref_loss}, step=step)
+                            if ref_val_loss is not None:
+                                wandb.log({f"reference_validation_loss_{iteration}": ref_val_loss}, step=step)
+                        
                         for split, val_iterator in val_iterators.items():
                             model.eval()
                             with torch.no_grad():
@@ -301,12 +324,12 @@ def main(cfg: MainConfig):
                                     if val_loss < min_loss:
                                         min_loss = val_loss
                                         best_model_state_dict = copy.deepcopy(model.state_dict())
-                                        save_epoch = step / eval_interval
+                                        save_epoch = step / (eval_interval * cfg.common.eval_per_epoch)
                                 elif split == "train":
                                     if val_loss < min_loss:
                                         min_loss = val_loss
                                         best_model_state_dict = copy.deepcopy(model.state_dict())
-                                        save_epoch = step / eval_interval
+                                        save_epoch = step / (eval_interval * cfg.common.eval_per_epoch)
 
                             model.train()
                     
@@ -321,3 +344,6 @@ def main(cfg: MainConfig):
         assert best_model_state_dict is not None, "No model was saved during training. Please check if the training loop is working correctly."
         logger.info(f"Best model found at epoch {save_epoch:.2f} with validation loss {min_loss:.4f}. Saving model...")
         torch.save(best_model_state_dict, output_dir / f"weights/prior_{iteration}.pth")
+        
+if __name__ == "__main__":
+    main()
