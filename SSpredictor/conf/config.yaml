@@ -2,7 +2,7 @@ hydra:
   job:
     chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
   run:
-    dir: ./${path.output_dir}/${path.timestamp}/train_config # ログの保存場所は確保
+    dir: ./${path.output_dir}/hydra_configs/${path.timestamp}/train_config # ログの保存場所は確保
 
 defaults:
   - base_config_schema
@@ -13,7 +13,7 @@ defaults:
 common:
   seed: 42
   batch_size: 2
-  max_epochs: 15
+  max_epochs: 20
   eval_per_epoch: 2 # 1epochあたりの評価回数
   eval_steps: 30
   use_gpu: true

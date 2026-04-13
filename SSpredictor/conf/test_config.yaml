@@ -2,7 +2,7 @@ hydra:
   job:
     chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
   run:
-    dir: ./${path.output_dir}/${path.timestamp}/test_config # ログの保存場所は確保
+    dir: ./${path.output_dir}/hydra_configs/${path.timestamp}/test_config # ログの保存場所は確保
 
 defaults:
   - test_config_schema
