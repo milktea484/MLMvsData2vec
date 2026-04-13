@@ -1,4 +1,4 @@
-_target_: models.data2vecModel
+_target_: pretrain.models.data2vecModel
 name: data2vec
 wandb_tags: ["data2vec"]
 lr: 0.0002
