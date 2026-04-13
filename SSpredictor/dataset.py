@@ -252,7 +252,7 @@ def create_dataloader(config: MainConfig, split: str, pretrain_config: PretrainM
             reference_embedding_dim = -1 
         else:
             if config.experiment.use_attention:
-                reference_embedding_dim = pretrain_config.framework.n_layers * pretrain_config.framework.n_heads
+                reference_embedding_dim = pretrain_config.framework.arch.n_layers * pretrain_config.framework.arch.n_heads
             else:
                 reference_embedding_dim = pretrain_config.model_size.embed_dim
                 

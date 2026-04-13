@@ -41,7 +41,7 @@ def seq2token(
         
     return token_seqs
 
-def bp2matrix(L, base_pairs):
+def bp2matrix(L, base_pairs) -> torch.Tensor:
     """
     リスト形式のBase pairsを行列に変換する関数
     Args:
@@ -74,7 +74,7 @@ def get_embedding_dim(loader: torch.utils.data.DataLoader, use_attention: bool) 
     
     return batch_elem["embeddings"].shape[1] if use_attention else batch_elem["embeddings"].shape[-1]
 
-def outer_concat(t1: torch.Tensor, t2: torch.Tensor):
+def outer_concat(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
     """
     t1とt2のouter concatを計算する関数. 配列特徴量を入力とする時に使用
     Args:
@@ -92,7 +92,7 @@ def outer_concat(t1: torch.Tensor, t2: torch.Tensor):
 
     return torch.concat((a, b), dim=-1)
 
-def symmetrize(x: torch.Tensor, zero_diagonal: bool = True):
+def symmetrize(x: torch.Tensor, zero_diagonal: bool = True) -> torch.Tensor:
     """
     行列を対称化する関数. 対角線は0にする.
     Args:
@@ -109,7 +109,7 @@ def symmetrize(x: torch.Tensor, zero_diagonal: bool = True):
     
     return output
 
-def apc(x: torch.Tensor):
+def apc(x: torch.Tensor) -> torch.Tensor:
     """
     Perform average product correct, used for contact prediction.
     (by https://github.com/facebookresearch/esm/blob/2b369911bb5b4b0dda914521b9475cad1656b2ac/esm/modules.py#L32)
@@ -173,11 +173,14 @@ def visualize_probability_matrix(gt_bp_matrix: torch.Tensor, probability_matrix:
     """
     
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-    axes[0].imshow(gt_bp_matrix, cmap="viridis", vmin=0, vmax=1)
+    im1 = axes[0].imshow(gt_bp_matrix, cmap="viridis", vmin=0, vmax=1)
     axes[0].set_title("Ground Truth Base Pair Matrix")
-    im = axes[1].imshow(probability_matrix, cmap="viridis", vmin=0, vmax=1)
+    fig.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
+    
+    im2 = axes[1].imshow(probability_matrix, cmap="viridis", vmin=0, vmax=1)
     axes[1].set_title("Predicted Base Pair Probability Matrix")
-    fig.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
+    fig.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
+    
     fig.tight_layout()
     plt.savefig(output_path)
     plt.close()
