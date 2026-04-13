@@ -74,13 +74,13 @@ def precision_recall_f1(gt: torch.Tensor, pred: torch.Tensor):
     return pre, rec, f1
 
 
-def calculate_confusion_matrix(gt_bp_matrix: torch.Tensor, pred_bp_matrix: torch.Tensor, step: float):
+def calculate_confusion_matrix(gt_bp_matrix: torch.Tensor, probability_matrix: torch.Tensor, step: float):
     """
     混合行列 (tp, tn, fp, fn)を計算する関数.
 
     Args:
         gt_bp_matrix (torch.Tensor): 真の二次構造行列. shape = (L, L)
-        pred_bp_matrix (torch.Tensor): 予測された二次構造行列. shape = (L, L)
+        probability_matrix (torch.Tensor): 予測された二次構造確率行列. shape = (L, L)
         step (float): 閾値のステップサイズ
     
     Returns:
@@ -96,15 +96,15 @@ def calculate_confusion_matrix(gt_bp_matrix: torch.Tensor, pred_bp_matrix: torch
     thresholds = np.arange(0, 1+step, step)
 
     gt_bp_matrix = gt_bp_matrix.view(-1).unsqueeze(1).numpy()   # (L, L) -> (L*L, 1)
-    pred_bp_matrix = pred_bp_matrix.view(-1).unsqueeze(1).numpy() # (L, L) -> (L*L, 1)
+    probability_matrix = probability_matrix.view(-1).unsqueeze(1).numpy() # (L, L) -> (L*L, 1)
 
-    pred_bp_matrix = np.greater_equal(pred_bp_matrix, thresholds) # (L*L, 1) -> (L*L, len(thresholds))
+    probability_matrix = np.greater_equal(probability_matrix, thresholds) # (L*L, 1) -> (L*L, len(thresholds))
     
     # 各閾値に対して混合行列を計算. 
-    confusion_dict["tp"] = np.sum(np.logical_and(pred_bp_matrix, gt_bp_matrix), axis=0)
-    confusion_dict["tn"] = np.sum(np.logical_and(np.logical_not(pred_bp_matrix), np.logical_not(gt_bp_matrix)), axis=0)
-    confusion_dict["fp"] = np.sum(np.logical_and(pred_bp_matrix, np.logical_not(gt_bp_matrix)), axis=0)
-    confusion_dict["fn"] = np.sum(np.logical_and(np.logical_not(pred_bp_matrix), gt_bp_matrix), axis=0)
+    confusion_dict["tp"] = np.sum(np.logical_and(probability_matrix, gt_bp_matrix), axis=0)
+    confusion_dict["tn"] = np.sum(np.logical_and(np.logical_not(probability_matrix), np.logical_not(gt_bp_matrix)), axis=0)
+    confusion_dict["fp"] = np.sum(np.logical_and(probability_matrix, np.logical_not(gt_bp_matrix)), axis=0)
+    confusion_dict["fn"] = np.sum(np.logical_and(np.logical_not(probability_matrix), gt_bp_matrix), axis=0)
 
     return confusion_dict
 
