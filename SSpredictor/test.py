@@ -281,8 +281,7 @@ def main(cfg: MainConfig):
                 pred_bp_prob = pred_bp_prob[:length, :length]
                 
                 # pred_bp_probはロジットなのでシグモイド関数を通して確率に変換
-                pred_bp_prob = torch.fill_diagonal(pred_bp_prob, float("-inf"))
-                pred_bp_prob = torch.sigmoid(pred_bp_prob)
+                pred_bp_prob = torch.sigmoid(pred_bp_prob.fill_diagonal_(float("-inf")))
 
                 # 全体の結果の保存
                 overall_results["test_losses"].append(mean_test_loss.detach().cpu().item())
