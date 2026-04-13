@@ -72,7 +72,7 @@ def main(cfg: MainConfig):
     warnings.filterwarnings("ignore", category=UserWarning)
     
     # 訓練済みモデルと対応するhydraconfigの読み込み
-    train_cfg_path = Path(cfg.path.output_dir) / cfg.SStrain_model_path.timestamp / "train_config" / "config.yaml"
+    train_cfg_path = Path(cfg.path.output_dir) / "hydra_configs" / cfg.SStrain_model_path.timestamp / "train_config/.hydra/config.yaml"
     if not train_cfg_path.exists():
         raise FileNotFoundError(f"Train config path {train_cfg_path} does not exist.")
     
@@ -126,6 +126,14 @@ def main(cfg: MainConfig):
         pretrain_cfg_path = pretrain_model_path / f"train_config/.hydra/config.yaml"
         pretrain_cfg: PretrainMainConfig = OmegaConf.load(pretrain_cfg_path)
         
+        # 互換パッチ: 古い pretrain 実験では `_target_` が "models.*" になっていることがあるため
+        # 現在のパッケージ構成に合わせてフルパスに書き換える
+        target = getattr(pretrain_cfg.framework, "_target_", None)
+        if target == "models.data2vecModel":
+            pretrain_cfg.framework._target_ = "pretrain.models.data2vecModel"
+        elif target == "models.MLMModel":
+            pretrain_cfg.framework._target_ = "pretrain.models.MLMModel"
+        
         pretrain_model: PretrainBaseModel = hydra.utils.instantiate(
             pretrain_cfg.framework,
             padding_idx=pretrain_cfg.dataset.tokens.index("<pad>"),
@@ -153,7 +161,7 @@ def main(cfg: MainConfig):
     if train_cfg.dataset.embedding_file is None:
         assert pretrain_model is not None, "Either a pretrain model or an embedding file must be specified to determine the embedding dimension."
         if train_cfg.experiment.use_attention:
-            embedding_dim = pretrain_cfg.framework.n_layers * pretrain_cfg.framework.n_heads
+            embedding_dim = pretrain_cfg.framework.arch.n_layers * pretrain_cfg.framework.arch.n_heads
         else:
             embedding_dim = pretrain_cfg.model_size.embed_dim
     else:
@@ -265,27 +273,38 @@ def main(cfg: MainConfig):
                 overall_results["ref_test_losses"].append(mean_ref_test_loss.detach().cpu().item())
             
             # 評価と予測
-            for batch_idx, seq_id, sequence, length, gt_bp_matrix, pred_bp_prob in enumerate(zip(batch["seq_ids"], batch["sequences"], batch["lengths"], batch["bp_matrices"], mean_logits)):
+            for batch_idx, zip_tuple in enumerate(zip(batch["seq_ids"], batch["sequences"], batch["lengths"], batch["bp_matrices"], mean_logits)):
+                seq_id, sequence, length, gt_bp_matrix, pred_bp_prob = zip_tuple
+                
                 # paddingの除去
                 gt_bp_matrix = gt_bp_matrix[:length, :length]
                 pred_bp_prob = pred_bp_prob[:length, :length]
                 
                 # pred_bp_probはロジットなのでシグモイド関数を通して確率に変換
+                pred_bp_prob = torch.fill_diagonal(pred_bp_prob, float("-inf"))
                 pred_bp_prob = torch.sigmoid(pred_bp_prob)
 
                 # 全体の結果の保存
                 overall_results["test_losses"].append(mean_test_loss.detach().cpu().item())
                 if cfg.common.save_probability_matrix:
-                    hdf5_file.create_dataset(seq_id, data=pred_bp_prob.detach().cpu().numpy())
+                    hdf5_file.create_dataset(seq_id, data=pred_bp_prob.to(torch.float32).detach().cpu().numpy())
                     
                 # 初回ならばシーケンスごとの予測確率行列を可視化して保存
-                if i == 0:
+                if i == 0 and batch_idx == 0:
                     probability_matrix_path = output_dir / f"{seq_id}_probability_matrix.png"
-                    visualize_probability_matrix(gt_bp_matrix, pred_bp_prob, output_path=probability_matrix_path)
+                    visualize_probability_matrix(
+                        gt_bp_matrix=gt_bp_matrix.to(torch.float32).detach().cpu(),
+                        probability_matrix=pred_bp_prob.to(torch.float32).detach().cpu(),
+                        output_path=probability_matrix_path
+                    )
 
                 # 混合行列の更新
                 if cfg.common.evaluation:
-                    batch_confusion_dict = calculate_confusion_matrix(gt_bp_matrix.cpu(), pred_bp_prob.cpu(), step=cfg.evaluation.auc_step)
+                    batch_confusion_dict = calculate_confusion_matrix(
+                        gt_bp_matrix=gt_bp_matrix.to(torch.float32).detach().cpu(),
+                        probability_matrix=pred_bp_prob.to(torch.float32).detach().cpu(),
+                        step=cfg.evaluation.auc_step
+                    )
                     confusion_dict["tp"] += batch_confusion_dict["tp"]
                     confusion_dict["tn"] += batch_confusion_dict["tn"]
                     confusion_dict["fp"] += batch_confusion_dict["fp"]
@@ -324,7 +343,7 @@ def main(cfg: MainConfig):
         auc_figure_path = output_dir / "auc_curve.png"
         
         # ROC曲線とPR曲線の描画
-        visualize_auc(figure_materials, auc_dict, output_path=auc_figure_path)
+        visualize_auc(figure_materials, output_path=auc_figure_path)
         logger.info(f"Saved ROC and PR curve figure to {auc_figure_path}")
         overall_results["roc_auc"] = auc_dict["roc_auc"]
         overall_results["pr_auc"] = auc_dict["pr_auc"]
