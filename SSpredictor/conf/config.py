@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from omegaconf import MISSING
+from omegaconf import MISSING, ListConfig, OmegaConf
 
 
 @dataclass
@@ -50,14 +50,31 @@ class CommonConfig:
 
 @dataclass
 class PretrainConfig:
-    framework: str | None = None
-    """使用する事前学習モデルのフレームワーク"""
+    framework: list[str] | str | None = None
+    """使用する事前学習モデルのフレームワーク. Noneでない場合, 単体, 複数どちらの場合もlistとして渡される."""
     
-    timestamp: str | None = None
-    """使用する事前学習モデルのタイムスタンプ"""
+    timestamp: list[str] | str | None = None
+    """使用する事前学習モデルのタイムスタンプ. Noneでない場合, 単体, 複数どちらの場合もlistとして渡される."""
     
-    checkpoint: str = MISSING
-    """使用するモデルのチェックポイント. デフォルトは事前学習モデルの最終ステップ(final)"""
+    checkpoint: list[str] | str = MISSING
+    """使用するモデルのチェックポイント. 単体, 複数どちらの場合もlistとして渡される.デフォルトは事前学習モデルの最終ステップ(final)"""
+
+    def __post_init__(self):
+        # ListConfigをlistに変換
+        if isinstance(self.framework, ListConfig):
+            self.framework = OmegaConf.to_container(self.framework, resolve=True)
+        if isinstance(self.timestamp, ListConfig):
+            self.timestamp = OmegaConf.to_container(self.timestamp, resolve=True)
+        if isinstance(self.checkpoint, ListConfig):
+            self.checkpoint = OmegaConf.to_container(self.checkpoint, resolve=True)
+        
+        # strの場合もlistに変換
+        if isinstance(self.framework, str):
+            self.framework = [self.framework]
+        if isinstance(self.timestamp, str):
+            self.timestamp = [self.timestamp]
+        if isinstance(self.checkpoint, str):
+            self.checkpoint = [self.checkpoint]
     
 @dataclass
 class PathConfig:
@@ -71,11 +88,20 @@ class PathConfig:
 class DatasetConfig:
     max_length: int = MISSING
     sequence_file: str = MISSING
-    embedding_file: str | None = None
-    """すでにh5形式で保存されている配列特徴量のファイル名. 事前学習モデルの出力を使用する場合に必要"""
+    embedding_file: list[str] | str | None = None
+    """すでにh5形式で保存されている配列特徴量のファイル名. 事前学習モデルの出力を使用する場合に必要. Noneでない場合, 単体, 複数どちらの場合もlistとして渡される."""
     train_file: str = MISSING
     validation_file: str = MISSING
     test_file: str = MISSING
+
+    def __post_init__(self):
+        # ListConfigをlistに変換
+        if isinstance(self.embedding_file, ListConfig):
+            self.embedding_file = OmegaConf.to_container(self.embedding_file, resolve=True)
+        
+        # strの場合もlistに変換
+        if isinstance(self.embedding_file, str):
+            self.embedding_file = [self.embedding_file]
     
 @dataclass
 class ExperimentConfig:

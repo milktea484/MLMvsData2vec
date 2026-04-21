@@ -40,6 +40,6 @@ experiment:
   name: "???"
   additional_experiment_info: null
   kf_lambda_cfg:
-    min: null
-    max: null
-    step: null
+    min: -1.0
+    max: 5.0
+    step: 0.2

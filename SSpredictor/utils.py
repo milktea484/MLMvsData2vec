@@ -61,18 +61,23 @@ def bp2matrix(L, base_pairs) -> torch.Tensor:
 
     return matrix
 
-def get_embedding_dim(loader: torch.utils.data.DataLoader, use_attention: bool) -> int:
+def get_embedding_dim(loader: torch.utils.data.DataLoader) -> int:
     """
-    ローダーから埋め込み次元数を取得する関数. embedding_fileが指定されている場合のみ使用
+    embedding_fileから得られる埋め込みの次元のみを返す関数. 事前学習モデルの埋め込み次元は別途用意する必要あり
     Args:
         loader: データローダー
-        use_attention: attentionかどうか
     Returns:
         int: 埋め込みの次元数
     """
     batch_elem = next(iter(loader)) # (B, L, E) or (B, E, L, L)
+
+    # embeddingsがあるときはその次元数を返す. ないときは0を返す
+    if batch_elem["embeddings"] is not None:
+        use_attention = batch_elem["embeddings"].dim() == 4
+        return batch_elem["embeddings"].shape[1] if use_attention else batch_elem["embeddings"].shape[-1]
     
-    return batch_elem["embeddings"].shape[1] if use_attention else batch_elem["embeddings"].shape[-1]
+    else:
+        return 0
 
 def outer_concat(t1: torch.Tensor, t2: torch.Tensor) -> torch.Tensor:
     """
@@ -214,8 +219,17 @@ def validate_config(cfg: MainConfig):
         cfg (MainConfig): 検証する設定オブジェクト
     """
     
+    # "dataset.embedding_file"または"pretrain.framework, pretrain.timestampの両方"のどちらも指定されていない時はエラー
     if (cfg.pretrain.framework is None or cfg.pretrain.timestamp is None) and cfg.dataset.embedding_file is None:
         raise ValueError("Either pretrain.framework and pretrain.timestamp or dataset.embedding_file must be specified.")
+    
+    # pretrain.frameworkとpretrain.timestampの両方が指定されている時
+    if cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None:
+        # 両方ともlistで同じ長さでなければエラー
+        assert isinstance(cfg.pretrain.framework, list) and isinstance(cfg.pretrain.timestamp, list), "pretrain.framework and pretrain.timestamp must both be lists if one of them is a list."
+        if len(cfg.pretrain.framework) != len(cfg.pretrain.timestamp):
+            raise ValueError("Length of pretrain.framework and pretrain.timestamp lists must be the same.")
+
     
 def setup_test_config():
     """

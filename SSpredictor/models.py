@@ -20,7 +20,8 @@ class KnotFoldModel(nn.Module):
     
     Args:
         arch: アーキテクチャの設定. conf/config.pyのKnotFoldArchConfigを参照.
-        pretrain_model: 事前学習モデル. BaseModelを継承したモデルを想定
+        pretrain_models: 事前学習モデルのリスト. BaseModelを継承したモデルを想定
+        embedding_dim: 埋め込み次元数. 事前学習モデルの特徴量とデータセットの特徴量を結合した後の次元数を指定する必要がある.
         use_attention: 入力の形状がattention weightかどうか.
         device: モデルを配置するデバイス.
         reference: 参照モデルかどうか. 
@@ -28,7 +29,7 @@ class KnotFoldModel(nn.Module):
     def __init__(
         self,
         arch: dict[str, Any],
-        pretrain_model: pretrain.models.BaseModel | None,
+        pretrain_models: list[pretrain.models.BaseModel] | None,
         embedding_dim: int,
         use_attention: bool,
         device: torch.device,
@@ -38,10 +39,11 @@ class KnotFoldModel(nn.Module):
         super().__init__()
         
         # 事前学習モデル
-        self.pretrain_model = pretrain_model
-        if self.pretrain_model is not None:
-            self.pretrain_model.to(device=device)
-            self.pretrain_model.eval()
+        if pretrain_models is not None:
+            for pretrain_model in pretrain_models:
+                pretrain_model.eval()
+                pretrain_model.to(device=device)
+        self.pretrain_models = pretrain_models
         
         # アーキテクチャの構築
         self.norm = nn.LayerNorm(embedding_dim) 
@@ -54,12 +56,89 @@ class KnotFoldModel(nn.Module):
             self.conv_out = nn.Conv2d(arch["conv_dim"], 1, kernel_size=arch["kernel_size"], padding="same")
             
         # その他
+        self.embedding_dim = embedding_dim
         self.use_simple = arch["use_simple"]
         self.use_attention = use_attention
         self.reference = reference
         
         self.device = device
         self.to(device=device)
+    
+    def get_pretrain_model_embeddings(self, batch) -> torch.Tensor | None:
+        """
+        事前学習モデルからの特徴量を取得する関数. 事前学習モデルが複数ある場合は結合して返す. モデルがない場合はNoneを返す.
+        Args:
+            batch: バッチデータ
+        Returns:
+            torch.Tensor | None: 事前学習モデルからの特徴量. shape = (B, L, E) or (B, E, L, L)
+        """
+        
+        pretrain_model_embeddings = None
+        pretrain_model_embeddings_list = []
+        if self.pretrain_models is not None:
+            for pretrain_model in self.pretrain_models:
+                with torch.inference_mode():
+                    pretrain_outputs = pretrain_model._test(batch)
+                
+                # attentionを使用するかどうか
+                output_embeddings = pretrain_outputs["attn"] if self.use_attention else pretrain_outputs["repr"]
+                
+                # additional tokensを除去 (必要な場合)
+                lengths = batch["lengths"]
+                if output_embeddings.shape[1] > lengths.max():
+                    assert output_embeddings.shape[1] == lengths.max() + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[1]} vs {lengths.max()} + 2)"
+
+                    output_embeddings = output_embeddings[:, :, 1:-1, 1:-1] if self.use_attention else output_embeddings[:, 1:-1, :] # (B, E, L+2, L+2) -> (B, E, L, L) or (B, L+2, E) -> (B, L, E)
+
+                pretrain_model_embeddings_list.append(output_embeddings)
+            
+            if self.use_attention:
+                pretrain_model_embeddings = torch.cat(pretrain_model_embeddings_list, dim=1) # (B, E, L, L) * num_models -> (B, E_total, L, L)
+            else:
+                pretrain_model_embeddings = torch.cat(pretrain_model_embeddings_list, dim=-1) # (B, L, E) * num_models -> (B, L, E_total)
+        
+        return pretrain_model_embeddings
+    
+    def concatenate_embeddings(self, pretrain_model_embeddings: torch.Tensor | None, dataset_embeddings: torch.Tensor | None, max_length: int) -> torch.Tensor:
+        """
+        事前学習モデルからの特徴量とデータセットの特徴量を結合する関数.
+        Args:
+            pretrain_model_embeddings: 事前学習モデルからの特徴量. shape = (B, L, E) or (B, E, L, L)
+            dataset_embeddings: データセットからの特徴量. shape = (B, L, E) or (B, E, L, L)
+            max_length: バッチ内最大シーケンス長
+        Returns:
+            torch.Tensor: 結合された特徴量. shape = (B, L, E_total) or (B, E_total, L, L)
+        """
+        
+        embeddings = None
+        if pretrain_model_embeddings is not None and dataset_embeddings is not None:
+            if pretrain_model_embeddings.dim() != dataset_embeddings.dim():
+                raise ValueError(f"Dimension of pretrain model embeddings and dataset embeddings must match! ({pretrain_model_embeddings.dim()} vs {dataset_embeddings.dim()})")
+            
+            if self.use_attention:
+                embeddings = torch.cat([pretrain_model_embeddings, dataset_embeddings], dim=1)
+            else:
+                embeddings = torch.cat([pretrain_model_embeddings, dataset_embeddings], dim=-1)
+                
+        elif pretrain_model_embeddings is not None:
+            embeddings = pretrain_model_embeddings
+        elif dataset_embeddings is not None:
+            embeddings = dataset_embeddings
+        
+        # embeddings = pretrain_model_embeddings if pretrain_model_embeddings is not None else dataset_embeddings
+        
+        # assertion
+        assert embeddings is not None, "Embeddings could not be constructed!"
+        if self.use_attention:
+            assert embeddings.dim() == 4, f"Embeddings dimension must be 4 for attention! (got {embeddings.dim()})"
+            assert embeddings.shape[2] == max_length and embeddings.shape[3] == max_length, f"Embeddings spatial dimensions must match max sequence length! (got {embeddings.shape[2:]} vs {max_length})"
+            assert embeddings.shape[1] == self.embedding_dim, f"Embeddings channel dimension must match embedding_dim! (got {embeddings.shape[1]} vs {self.embedding_dim})"
+        else:
+            assert embeddings.dim() == 3, f"Embeddings dimension must be 3 for non-attention! (got {embeddings.dim()})"
+            assert embeddings.shape[1] == max_length, f"Embeddings sequence dimension must match max sequence length! (got {embeddings.shape[1]} vs {max_length})"
+            assert embeddings.shape[2] == self.embedding_dim, f"Embeddings feature dimension must match embedding_dim! (got {embeddings.shape[2]} vs {self.embedding_dim})"
+        
+        return embeddings
         
     def loss_func(self, pred: torch.Tensor, target: torch.Tensor):
         """
@@ -160,17 +239,10 @@ class KnotFoldModel(nn.Module):
         Returns:
             torch.Tensor: 損失値
         """
+
         # 事前学習モデルからの特徴量の取得
-        pretrain_model_embeddings = None
-        if self.pretrain_model is not None and not self.reference:
-            with torch.inference_mode():
-                pretrain_outputs = self.pretrain_model._test(batch)
-                
-            if self.use_attention:
-                pretrain_model_embeddings = pretrain_outputs["attn"]
-            else:
-                pretrain_model_embeddings = pretrain_outputs["repr"]
-        
+        pretrain_model_embeddings = self.get_pretrain_model_embeddings(batch) if not self.reference else None
+
         # 読み込んだembeddingの取得
         dataset_embeddings = None
         if self.reference:
@@ -178,25 +250,8 @@ class KnotFoldModel(nn.Module):
         elif batch["embeddings"] is not None:
             dataset_embeddings = batch["embeddings"]
             
-        # embeddingを結合するかどうか (めんどうなのでしない)
-        # embeddings = None
-        # if pretrain_model_embeddings is not None and dataset_embeddings is not None:
-        #     if pretrain_model_embeddings.shape[1] != dataset_embeddings.shape[1]:
-        #         raise ValueError(f"Dimension of pretrain model embeddings and dataset embeddings must match! ({pretrain_model_embeddings.shape} vs {dataset_embeddings.shape})")
-            
-        #     if self.use_attention:
-        #         embeddings = torch.stack([pretrain_model_embeddings, dataset_embeddings], dim=1)
-        #     else:
-        #         embeddings = torch.cat([pretrain_model_embeddings, dataset_embeddings], dim=-1)
-                
-        # elif pretrain_model_embeddings is not None:
-        #     embeddings = pretrain_model_embeddings
-        # else:
-        #     embeddings = dataset_embeddings
-        
-        embeddings = pretrain_model_embeddings if pretrain_model_embeddings is not None else dataset_embeddings
-            
-        assert embeddings is not None, "Embeddings could not be constructed!"
+        # embeddingの結合
+        embeddings = self.concatenate_embeddings(pretrain_model_embeddings, dataset_embeddings, max_length=batch["lengths"].max())
 
         # forward
         loss = self(
@@ -209,7 +264,7 @@ class KnotFoldModel(nn.Module):
     
     def _test(self, batch):
         """
-        基本は_trainと同じ. 評価時の順伝播と損失計算を行い, 損失とlogitsを返す.
+        基本は_trainと同じだが, referenceは考慮しない. 評価時の順伝播と損失計算を行い, 損失とlogitsを返す.
         Args:
             batch: バッチデータ
         Returns:
@@ -220,25 +275,17 @@ class KnotFoldModel(nn.Module):
             }
             
         """
-        # 事前学習モデルからの特徴量の取得
-        pretrain_model_embeddings = None
-        if self.pretrain_model is not None:
-            with torch.inference_mode():
-                pretrain_outputs = self.pretrain_model._test(batch)
-                
-            if self.use_attention:
-                pretrain_model_embeddings = pretrain_outputs["attn"]
-            else:
-                pretrain_model_embeddings = pretrain_outputs["repr"]
         
+        # 事前学習モデルからの特徴量の取得
+        pretrain_model_embeddings = self.get_pretrain_model_embeddings(batch)
+
         # 読み込んだembeddingの取得
         dataset_embeddings = None
         if batch["embeddings"] is not None:
             dataset_embeddings = batch["embeddings"]
-
-        embeddings = pretrain_model_embeddings if pretrain_model_embeddings is not None else dataset_embeddings
             
-        assert embeddings is not None, "Embeddings could not be constructed!"
+        # embeddingの結合
+        embeddings = self.concatenate_embeddings(pretrain_model_embeddings, dataset_embeddings, max_length=batch["lengths"].max())
 
         # forward
         results = self(

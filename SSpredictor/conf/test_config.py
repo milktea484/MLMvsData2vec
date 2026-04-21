@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from omegaconf import MISSING
+from omegaconf import MISSING, ListConfig, OmegaConf
 
 
 @dataclass
@@ -24,11 +24,24 @@ class CommonConfig:
 
 @dataclass
 class PretrainConfig:
-    framework: str | None = None
+    framework: list[str] | str | None = None
     """使用する事前学習モデルのフレームワーク"""
     
-    timestamp: str | None = None
+    timestamp: list[str] |str | None = None
     """使用する事前学習モデルのタイムスタンプ"""
+
+    def __post_init__(self):
+        # ListConfigをlistに変換
+        if isinstance(self.framework, ListConfig):
+            self.framework = OmegaConf.to_container(self.framework, resolve=True)
+        if isinstance(self.timestamp, ListConfig):
+            self.timestamp = OmegaConf.to_container(self.timestamp, resolve=True)
+
+        # strの場合もlistに変換
+        if isinstance(self.framework, str):
+            self.framework = [self.framework]
+        if isinstance(self.timestamp, str):
+            self.timestamp = [self.timestamp]
 
 @dataclass
 class PathConfig:
@@ -42,8 +55,17 @@ class SStrainModelPathConfig:
     
 @dataclass
 class DatasetConfig:
-    embedding_file: str | None = None
+    embedding_file: list[str] | str | None = None
     test_file: str = MISSING
+
+    def __post_init__(self):
+        # ListConfigをlistに変換
+        if isinstance(self.embedding_file, ListConfig):
+            self.embedding_file = OmegaConf.to_container(self.embedding_file, resolve=True)
+
+        # strの場合もlistに変換
+        if isinstance(self.embedding_file, str):
+            self.embedding_file = [self.embedding_file]
     
 @dataclass
 class EvaluationConfig:
@@ -52,11 +74,11 @@ class EvaluationConfig:
 
 @dataclass
 class KfLambdaConfig:
-    min: float | None = None
+    min: float = MISSING
     """kf_lambdaの最小値"""
-    max: float | None = None
+    max: float = MISSING
     """kf_lambdaの最大値"""
-    step: float | None = None
+    step: float = MISSING
     """kf_lambdaの刻み幅"""
 
 @dataclass
@@ -64,7 +86,7 @@ class ExperimentConfig:
     name: str = MISSING
     additional_experiment_info: str | None = None
     kf_lambda_cfg: KfLambdaConfig = MISSING
-    """KnotFoldの最小フローアルゴリズムのlambdaの設定. minからmaxまでstep刻みで複数のkf_lambdaを試す. デフォルトはtrain_config(knotfold.yaml)の設定に従う"""
+    """KnotFoldの最小フローアルゴリズムのlambdaの設定. minからmaxまでstep刻みで複数のkf_lambdaを試す. """
     
 @dataclass
 class MainConfig:

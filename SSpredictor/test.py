@@ -1,4 +1,3 @@
-import copy
 import logging
 import random
 import warnings
@@ -14,17 +13,13 @@ from conf.test_config import MainConfig
 from dataset import create_dataloader
 from metrics import calculate_auc, calculate_confusion_matrix
 from models import KnotFoldModel
-from modules import CosineScheduler
 from omegaconf import OmegaConf
+from tqdm import tqdm
+from utils import (get_embedding_dim, setup_test_config, visualize_auc,
+                   visualize_probability_matrix)
+
 from pretrain.conf.config import MainConfig as PretrainMainConfig
 from pretrain.models import BaseModel as PretrainBaseModel
-from tqdm import tqdm
-from utils import (
-    get_embedding_dim,
-    setup_test_config,
-    visualize_auc,
-    visualize_probability_matrix,
-)
 
 setup_test_config()
 
@@ -33,29 +28,38 @@ def main(cfg: MainConfig):
     
     # 訓練済みモデルのPathの設定
     train_model_path = Path(cfg.path.output_dir)
+
+    ## 事前学習モデルとembedding_fileの両方がある時
+    if cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None and cfg.dataset.embedding_file is not None:
+        train_model_path /= "combined_representation"
     
-    ## 事前学習モデルがある時
-    if cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None:
-        train_model_path = train_model_path / cfg.pretrain.framework / cfg.pretrain.timestamp
+    ## 事前学習モデルのみの時
+    elif cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None:
+        if len(cfg.pretrain.framework) == 1 and len(cfg.pretrain.timestamp) == 1:
+            train_model_path /= cfg.pretrain.framework[0] / cfg.pretrain.timestamp[0]
+        else:
+            train_model_path /= "combined_representation"
         
-    ## embedding fileがある時
+    ## embedding fileのみの時
     elif cfg.dataset.embedding_file is not None:
-        embedding_name = cfg.dataset.embedding_file.split(".")[0]
-        train_model_path = train_model_path / embedding_name
+        if len(cfg.dataset.embedding_file) == 1:
+            train_model_path /= Path(cfg.dataset.embedding_file[0]).stem
+        else:
+            train_model_path /= "combined_representation"
     
-    train_model_path = train_model_path / cfg.SStrain_model_path.model_name / cfg.SStrain_model_path.timestamp
+    train_model_path /= cfg.SStrain_model_path.model_name / cfg.SStrain_model_path.timestamp
     
     ## additional_experiment_infoがある時
     if cfg.experiment.additional_experiment_info is not None:
-        train_model_path = train_model_path / cfg.experiment.additional_experiment_info
+        train_model_path /= cfg.experiment.additional_experiment_info
 
     ## ディレクトリの存在確認
     if not train_model_path.exists():
         raise FileNotFoundError(f"Model path {train_model_path} does not exist.")
     
     # 出力ディレクトリの作成
-    output_dir = train_model_path / "test_results" / f"{cfg.path.timestamp}"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir_path = train_model_path / "test_results" / f"{cfg.path.timestamp}"
+    output_dir_path.mkdir(parents=True, exist_ok=True)
     
     # logの設定
     logging.basicConfig(
@@ -63,7 +67,7 @@ def main(cfg: MainConfig):
         format="%(asctime)s - %(name)s.%(lineno)d - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),  # Log to console
-            logging.FileHandler(output_dir / "log_test.txt", mode="w"),
+            logging.FileHandler(output_dir_path / "log_test.txt", mode="w"),
         ],
     )
     logger = logging.getLogger(__name__)
@@ -79,8 +83,10 @@ def main(cfg: MainConfig):
     train_cfg: TrainMainConfig = OmegaConf.load(train_cfg_path)
     
     # 設定の上書き
+    ## test_file
     train_cfg.dataset.test_file = cfg.dataset.test_file
     
+    ## iterations
     if cfg.common.iterations is None:
         cfg.common.iterations = train_cfg.common.iterations
     else:
@@ -89,13 +95,10 @@ def main(cfg: MainConfig):
     if cfg.common.iterations < 1:
         raise ValueError(f"Test config iterations must be a positive integer.")
     
+    ## knotfoldのkf_lambdaのリストの作成
     kf_lambda_list = None
     if train_cfg.model.name == "knotfold":
-        if cfg.experiment.kf_lambda_cfg.max is None or cfg.experiment.kf_lambda_cfg.min is None or cfg.experiment.kf_lambda_cfg.step is None:
-            logger.info("Kf_lambda_cfg is not fully specified. Will use kf_lambda from train config.")
-            kf_lambda_list = [train_cfg.model.kf_lambda]
-        else:
-            kf_lambda_list = np.arange(cfg.experiment.kf_lambda_cfg.min, cfg.experiment.kf_lambda_cfg.max + cfg.experiment.kf_lambda_cfg.step, cfg.experiment.kf_lambda_cfg.step).tolist()
+        kf_lambda_list = np.arange(cfg.experiment.kf_lambda_cfg.min, cfg.experiment.kf_lambda_cfg.max + cfg.experiment.kf_lambda_cfg.step, cfg.experiment.kf_lambda_cfg.step).tolist()
 
     # 使用デバイスの設定
     if torch.cuda.is_available() and cfg.common.use_gpu:
@@ -113,64 +116,111 @@ def main(cfg: MainConfig):
     torch.backends.cudnn.benchmark = False  # 再現性を無視してでも畳み込み演算速度を上げるオプション
     torch.backends.cudnn.deterministic = True  # pytorchで非決定的な操作を決定的なものにするオプション
     
+    # embedding次元数のリスト
+    total_pretrain_embedding_dim = 0
+
     # 表現学習モデルの準備
-    pretrain_model_path = None
+    ## 事前学習モデルのパスのリストを作成. 事前学習モデルが指定されていない場合は空リストのままにする
+    pretrain_model_paths = []
     if train_cfg.pretrain.framework is not None and train_cfg.pretrain.timestamp is not None:
-        pretrain_model_path = Path(train_cfg.path.pretrain_model_dir) / train_cfg.pretrain.framework / train_cfg.pretrain.timestamp
-        if not pretrain_model_path.exists():
-            raise FileNotFoundError(f"Pretrain model path {pretrain_model_path} does not exist.")
-    
-    pretrain_model = None
-    pretrain_cfg = None
-    if pretrain_model_path is not None:
-        pretrain_cfg_path = pretrain_model_path / f"train_config/.hydra/config.yaml"
-        pretrain_cfg: PretrainMainConfig = OmegaConf.load(pretrain_cfg_path)
+        for framework, timestamp in zip(train_cfg.pretrain.framework, train_cfg.pretrain.timestamp):
+            pretrain_model_path = Path(train_cfg.path.pretrain_model_dir) / framework / timestamp
+            if not pretrain_model_path.exists():
+                raise FileNotFoundError(f"Pretrain model path {pretrain_model_path} does not exist.")
+            pretrain_model_paths.append(pretrain_model_path)
+
+    ## 事前学習モデルの読み込みと初期化
+    pretrain_model_infos = []
+
+    if pretrain_model_paths:
+        # checkpointsの設定
+        checkpoints: list[str] = []
+        # checkpointがfinal単体の場合, pretrain_model_pathsの数だけfinalを追加. そうでない場合はcfg.pretrain.checkpointをそのまま使用
+        if len(train_cfg.pretrain.checkpoint) == 1 and train_cfg.pretrain.checkpoint[0] == "final":
+            checkpoints = ["final"] * len(pretrain_model_paths)
+        else:
+            checkpoints = train_cfg.pretrain.checkpoint
         
-        # 互換パッチ: 古い pretrain 実験では `_target_` が "models.*" になっていることがあるため
-        # 現在のパッケージ構成に合わせてフルパスに書き換える
-        target = getattr(pretrain_cfg.framework, "_target_", None)
-        if target == "models.data2vecModel":
-            pretrain_cfg.framework._target_ = "pretrain.models.data2vecModel"
-        elif target == "models.MLMModel":
-            pretrain_cfg.framework._target_ = "pretrain.models.MLMModel"
+        if len(checkpoints) != len(pretrain_model_paths):
+            raise ValueError("Length of pretrain.checkpoint must be the same as the number of pretrain models specified by pretrain.framework and pretrain.timestamp.")
+
+        for pretrain_model_path, checkpoint in zip(pretrain_model_paths, checkpoints):
+            # 事前学習モデルのconfigの読み込み
+            pretrain_cfg_path = pretrain_model_path / f"train_config/.hydra/config.yaml"
+            pretrain_cfg: PretrainMainConfig = OmegaConf.load(pretrain_cfg_path)
+            
+            # 互換パッチ: 古い pretrain 実験では `_target_` が "models.*" になっていることがあるため
+            # 現在のパッケージ構成に合わせてフルパスに書き換える
+            target = getattr(pretrain_cfg.framework, "_target_", None)
+            if target == "models.data2vecModel":
+                pretrain_cfg.framework._target_ = "pretrain.models.data2vecModel"
+            elif target == "models.MLMModel":
+                pretrain_cfg.framework._target_ = "pretrain.models.MLMModel"
+            
+            pretrain_model: PretrainBaseModel = hydra.utils.instantiate(
+                pretrain_cfg.framework,
+                padding_idx=pretrain_cfg.dataset.tokens.index("<pad>"),
+                num_tokens=len(pretrain_cfg.dataset.tokens),
+                experiment_cfg=pretrain_cfg.experiment,
+                device=device
+            )
         
-        pretrain_model: PretrainBaseModel = hydra.utils.instantiate(
-            pretrain_cfg.framework,
-            padding_idx=pretrain_cfg.dataset.tokens.index("<pad>"),
-            num_tokens=len(pretrain_cfg.dataset.tokens),
-            experiment_cfg=pretrain_cfg.experiment,
-            device=device
-        )
+            # 事前学習モデルの重みの読み込み
+            if checkpoint == "final":
+                checkpoint = pretrain_cfg.common.max_steps
+
+            pretrain_weight = f"weight_{checkpoint}.pth" if not train_cfg.experiment.use_teacher else f"teacher_weight_{checkpoint}.pth"
+            pretrain_model._load_state_dict(torch.load(pretrain_model_path / pretrain_weight, map_location=device))
+            
+            # 事前学習モデルの情報を保存
+            pretrain_model_infos.append({
+                "model": pretrain_model,
+                "config": pretrain_cfg,
+            })
+
+            logger.info(f"Loaded pretrain model from {pretrain_model_path}, checkpoint: {checkpoint}")
+
+        # 事前学習モデルが複数指定されている場合は,それらの出力を結合して二次構造予測モデルに入力することを想定しているため, additional tokenの設定が一致しているか確認
+        pretrain_model_cfgs = [info["config"] for info in pretrain_model_infos]
+
+        use_additional_token_list = []
+        for pretrain_cfg in pretrain_model_cfgs:
+            use_additional_token_list.append(pretrain_cfg.experiment.use_additional_token)
+            if train_cfg.experiment.use_attention:
+                embed_dim = pretrain_cfg.framework.arch.n_layers * pretrain_cfg.framework.arch.n_heads
+            else:
+                embed_dim = pretrain_cfg.model_size.embed_dim
+            total_pretrain_embedding_dim += embed_dim
         
-        ## 事前学習モデルの重みの読み込み
-        checkpoint = pretrain_cfg.common.max_steps if train_cfg.pretrain.checkpoint == "final" else train_cfg.pretrain.checkpoint
-        pretrain_weight = f"weight_{checkpoint}.pth" if not train_cfg.experiment.use_teacher else f"teacher_weight_{checkpoint}.pth"
-        
-        pretrain_model._load_state_dict(torch.load(pretrain_model_path / pretrain_weight, map_location=device))
-        
-        logger.info(f"Loaded pretrain model from {pretrain_model_path}, checkpoint: {checkpoint}")
-    else:
-        # 事前学習モデルが指定されていない場合, embedding_fileで指定されている埋め込み表現を使用
-        logger.info("No pretrain model specified. Will use embeddings from embedding_file provided.")
+        if len(set(use_additional_token_list)) > 1:
+            raise ValueError("When using multiple pretrain models, the setting of experiment.use_additional_token must be the same across all pretrain models.")
+
+    # embedding_fileが指定されている場合, その埋め込み表現を使用
+    if train_cfg.dataset.embedding_file is not None:
+        logger.info(f"Using embedding file {train_cfg.dataset.embedding_file} for training.")
         
     # データローダーの設定
-    test_loader = create_dataloader(config=train_cfg, split="test", pretrain_config=pretrain_cfg)
+    test_loader = create_dataloader(
+        config=train_cfg,
+        split="test",
+        pretrain_cfgs=[info["config"] for info in pretrain_model_infos] if pretrain_model_infos else None,
+    )
     
     # embedding次元数の取得
-    embedding_dim = None
-    if train_cfg.dataset.embedding_file is None:
-        assert pretrain_model is not None, "Either a pretrain model or an embedding file must be specified to determine the embedding dimension."
-        if train_cfg.experiment.use_attention:
-            embedding_dim = pretrain_cfg.framework.arch.n_layers * pretrain_cfg.framework.arch.n_heads
-        else:
-            embedding_dim = pretrain_cfg.model_size.embed_dim
-    else:
-        embedding_dim = get_embedding_dim(test_loader, train_cfg.experiment.use_attention)
-        
+    embedding_dim = 0
+
+    ## 事前学習モデルの埋め込み次元の合計
+    if pretrain_model_infos:
+        embedding_dim += total_pretrain_embedding_dim
+
+    ## embedding_fileから得られる埋め込みの次元
+    if train_cfg.dataset.embedding_file is not None:
+        embedding_dim += get_embedding_dim(test_loader)
+
     logger.info(f"embedding dimension: {embedding_dim}")
     
-        
     logger.info(f"Run on {train_model_path}, with device {device}")
+    logger.info(f"Model: {train_cfg.model.name}")
     logger.info(f"Setting seed: {cfg.common.seed}")
     logger.info(f"Experiment name: {cfg.experiment.name}")
     
@@ -185,7 +235,7 @@ def main(cfg: MainConfig):
         # 二次構造予測モデルの動的インポートと初期化
         model: KnotFoldModel = hydra.utils.instantiate(
             train_cfg.model,
-            pretrain_model=pretrain_model,
+            pretrain_models=[info["model"] for info in pretrain_model_infos] if pretrain_model_infos else None,
             embedding_dim=embedding_dim,
             use_attention=train_cfg.experiment.use_attention,
             device=device
@@ -200,7 +250,7 @@ def main(cfg: MainConfig):
         if train_cfg.model.name == "knotfold":
             ref_model: KnotFoldModel = hydra.utils.instantiate(
                 train_cfg.model,
-                pretrain_model=pretrain_model,
+                pretrain_models=[info["model"] for info in pretrain_model_infos] if pretrain_model_infos else None,
                 embedding_dim=embedding_dim,
                 use_attention=train_cfg.experiment.use_attention,
                 device=device,
@@ -218,7 +268,7 @@ def main(cfg: MainConfig):
     
     # probability_matrixの保存用
     if cfg.common.save_probability_matrix:
-        probability_matrix_path = output_dir / "predicted_probability_matrices.h5"
+        probability_matrix_path = output_dir_path / "predicted_probability_matrices.h5"
         hdf5_file = h5py.File(probability_matrix_path, "w")
     
     # ROCやPRを用いた評価をするための混合行列. 各要素はサイズlen(thresholds)のnumpy配列になる
@@ -290,7 +340,7 @@ def main(cfg: MainConfig):
                     
                 # 初回ならばシーケンスごとの予測確率行列を可視化して保存
                 if i == 0 and batch_idx == 0:
-                    probability_matrix_path = output_dir / f"{seq_id}_probability_matrix.png"
+                    probability_matrix_path = output_dir_path / f"{seq_id}_probability_matrix.png"
                     visualize_probability_matrix(
                         gt_bp_matrix=gt_bp_matrix.to(torch.float32).detach().cpu(),
                         probability_matrix=pred_bp_prob.to(torch.float32).detach().cpu(),
@@ -339,7 +389,7 @@ def main(cfg: MainConfig):
     if cfg.common.evaluation:
         # 全体のROC AUCやPR AUCの計算
         figure_materials, auc_dict = calculate_auc(confusion_dict)
-        auc_figure_path = output_dir / "auc_curve.png"
+        auc_figure_path = output_dir_path / "auc_curve.png"
         
         # ROC曲線とPR曲線の描画
         visualize_auc(figure_materials, output_path=auc_figure_path)
@@ -366,7 +416,7 @@ def main(cfg: MainConfig):
                     "recall": scores["recall"],
                     "f1": scores["f1"],
                 })
-            kf_lambda_results_path = output_dir / "kf_lambda_results.csv"
+            kf_lambda_results_path = output_dir_path / "kf_lambda_results.csv"
             kf_lambda_results_df = pd.DataFrame(kf_lambda_results_list)
             kf_lambda_results_df.to_csv(kf_lambda_results_path, index=False)
             logger.info(f"Saved kf_lambda results to {kf_lambda_results_path}")
@@ -393,12 +443,12 @@ def main(cfg: MainConfig):
             }
             prediction_to_csv_info.append(pred_result_info)
         
-        prediction_results_path = output_dir / "prediction_results.csv"
+        prediction_results_path = output_dir_path / "prediction_results.csv"
         pd.DataFrame(prediction_to_csv_info).to_csv(prediction_results_path, index=False)
         logger.info(f"Saved prediction results to {prediction_results_path}")
         
         ## 全体の結果の保存
-        overall_results_path = output_dir / "overall_results.csv"
+        overall_results_path = output_dir_path / "overall_results.csv"
         pd.DataFrame([overall_results]).to_csv(overall_results_path, index=False)
         logger.info(f"Saved overall results to {overall_results_path}")
             

@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import subprocess
 import sys
@@ -9,11 +10,11 @@ import pandas as pd
 
 def main():
     # カレントディレクトリのパスを取得
-    current_dir = Path(__file__).parent.parent.resolve()
+    current_dir_path = Path(__file__).parent.parent.resolve()
     
     # train.pyとtest.pyのpathを指定
-    train_script_path = current_dir / "SSpredictor/train.py"
-    test_script_path = current_dir / "SSpredictor/test.py"
+    train_script_path = current_dir_path / "SSpredictor/train.py"
+    test_script_path = current_dir_path / "SSpredictor/test.py"
     
     # sys.argv[0] は 'script.py' 自身だから無視して、[1:] 以降を取得する
     args = sys.argv[1:]
@@ -62,15 +63,10 @@ def main():
         train_args.append(f"model={model_name}")
         test_args.append(f"SStrain_model_path.model_name={model_name}")
 
-    # test_argsでpretrainの指定があるかどうかを確認し, なければtrain_argsを見てpretrainの指定があるかどうかを確認する
-    # 基本はtrain_argsと同じものにする
+    # train_argsを見てpretrainの指定があるかどうかを確認する
+    # 基本はtrain_argsと同じものをtest_argsにも追加する
     pretrain_framework = None
-    if any(arg.startswith("pretrain.framework=") for arg in test_args):
-        for arg in test_args:
-            if arg.startswith("pretrain.framework="):
-                pretrain_framework = arg.replace("pretrain.framework=", "", 1)
-                break
-    elif any(arg.startswith("pretrain.framework=") for arg in train_args):
+    if any(arg.startswith("pretrain.framework=") for arg in train_args):
         for arg in train_args:
             if arg.startswith("pretrain.framework="):
                 pretrain_framework = arg.replace("pretrain.framework=", "", 1)
@@ -78,12 +74,7 @@ def main():
                 break
             
     pretrain_timestamp = None
-    if any(arg.startswith("pretrain.timestamp=") for arg in test_args):
-        for arg in test_args:
-            if arg.startswith("pretrain.timestamp="):
-                pretrain_timestamp = arg.replace("pretrain.timestamp=", "", 1)
-                break
-    elif any(arg.startswith("pretrain.timestamp=") for arg in train_args):
+    if any(arg.startswith("pretrain.timestamp=") for arg in train_args):
         for arg in train_args:
             if arg.startswith("pretrain.timestamp="):
                 pretrain_timestamp = arg.replace("pretrain.timestamp=", "", 1)
@@ -91,14 +82,9 @@ def main():
                 break
 
     # 同様にdataset.embedding_fileの指定も確認する
-    # 基本はtrain_argsと同じものにする
+    # 基本はtrain_argsと同じものをtest_argsにも追加する
     dataset_embedding_file = None
-    if any(arg.startswith("dataset.embedding_file=") for arg in test_args):
-        for arg in test_args:
-            if arg.startswith("dataset.embedding_file="):
-                dataset_embedding_file = arg.replace("dataset.embedding_file=", "", 1)
-                break
-    elif any(arg.startswith("dataset.embedding_file=") for arg in train_args):
+    if any(arg.startswith("dataset.embedding_file=") for arg in train_args):
         for arg in train_args:
             if arg.startswith("dataset.embedding_file="):
                 dataset_embedding_file = arg.replace("dataset.embedding_file=", "", 1)
@@ -107,8 +93,8 @@ def main():
 
 
     # データセットの読み込みと分割
-    df = pd.read_csv(current_dir / "data/SS_data/ArchiveII.csv", index_col="id")
-    splits = pd.read_csv(current_dir / "data/SS_data/ArchiveII_famfold_splits.csv", index_col="id")
+    df = pd.read_csv(current_dir_path / "data/SS_data/ArchiveII.csv", index_col="id")
+    splits = pd.read_csv(current_dir_path / "data/SS_data/ArchiveII_famfold_splits.csv", index_col="id")
     
     # RNA family
     family = splits.fold.unique()
@@ -126,7 +112,7 @@ def main():
     for fam in family:
         train = df.loc[splits[(splits.fold == fam) & (splits.partition != "test")].index]
         test = df.loc[splits[(splits.fold == fam) & (splits.partition == "test")].index]
-        data_path = current_dir / f"data/SS_data/archiveii_famfold/{fam}/"
+        data_path = current_dir_path / f"data/SS_data/archiveii_famfold/{fam}/"
         os.makedirs(data_path, exist_ok=True)
         train.to_csv(data_path / "train.csv")
         test.to_csv(data_path / "test.csv")
@@ -148,25 +134,36 @@ def main():
         
     # test.pyの出力先の特定
     # f"results/SS_results/ArchiveII_famfold/{cfg.pretrain.framework}/{cfg.pretrain.timestamp}/{cfg.SStrain_model_path.model_name}/{cfg.SStrain_model_path.timestamp}/{cfg.experiment.additional_experiment_info}/test_results/{cfg.path.timestamp}/"
-    test_results_dir = current_dir / f"results/SS_results/ArchiveII_famfold"
+    test_results_dir_path = current_dir_path / f"results/SS_results/ArchiveII_famfold"
     
     ## pretrainまたはdataset.embedding_fileの情報をパスに追加
-    if pretrain_framework is not None and pretrain_timestamp is not None:
-        test_results_dir = test_results_dir / pretrain_framework / pretrain_timestamp
+    if pretrain_framework is not None and pretrain_timestamp is not None and dataset_embedding_file is not None:
+        test_results_dir_path /= "combined_representation"
+    elif pretrain_framework is not None and pretrain_timestamp is not None:
+        pretrain_framework = json.loads(pretrain_framework) if pretrain_framework.startswith("[") else [pretrain_framework]
+        pretrain_timestamp = json.loads(pretrain_timestamp) if pretrain_timestamp.startswith("[") else [pretrain_timestamp]
+        if len(pretrain_framework) == 1 and len(pretrain_timestamp) == 1:
+            test_results_dir_path /= pretrain_framework[0] / pretrain_timestamp[0]
+        else:
+            test_results_dir_path /= "combined_representation"
     elif dataset_embedding_file is not None:
-        test_results_dir /= Path(dataset_embedding_file).stem
+        dataset_embedding_file = json.loads(dataset_embedding_file) if dataset_embedding_file.startswith("[") else [dataset_embedding_file]
+        if len(dataset_embedding_file) == 1:
+            test_results_dir_path /= Path(dataset_embedding_file[0]).stem
+        else:            
+            test_results_dir_path /= "combined_representation"
     
     ## modelの情報をパスに追加
     if model_name is not None:
-        test_results_dir /= model_name
+        test_results_dir_path /= model_name
         
     ## SStrain_model_path.timestampの情報をパスに追加
-    test_results_dir /= timestamp
+    test_results_dir_path /= timestamp
     
     # 各familyのtest_resultsをまとめる
     overall_results = []
     for fam in family:
-        test_results_path = test_results_dir / fam / "test_results" / timestamp / "prediction_results.csv"
+        test_results_path = test_results_dir_path / fam / "test_results" / timestamp / "prediction_results.csv"
         if test_results_path.exists():
             fam_results = pd.read_csv(test_results_path)
             fam_results["family"] = fam
@@ -176,8 +173,8 @@ def main():
             
     if overall_results:
         overall_results_df = pd.concat(overall_results, ignore_index=True)
-        overall_results_df.to_csv(test_results_dir / "overall_results.csv", index=False)
-        print(f"Saved overall results to {test_results_dir / 'overall_results.csv'}")
+        overall_results_df.to_csv(test_results_dir_path / "overall_results.csv", index=False)
+        print(f"Saved overall results to {test_results_dir_path / 'overall_results.csv'}")
         
 
 if __name__ == "__main__":
