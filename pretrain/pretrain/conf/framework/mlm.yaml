@@ -1,3 +1,6 @@
+defaults:
+  - mlm_schema
+
 _target_: pretrain.models.MLMModel
 name: mlm
 wandb_tags: ["mlm"]
@@ -14,4 +17,3 @@ arch:
   n_heads: ${model_size.n_heads}
   attention_dropout: ${model_size.attention_dropout}
   rope_max_length: ${dataset.max_length}
-  n_head_layers: ${model_size.n_head_layers}

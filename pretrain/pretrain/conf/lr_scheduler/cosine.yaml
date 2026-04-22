@@ -1,3 +1,6 @@
+defaults:
+  - cosine_schema
+
 _target_: pretrain.modules.CosineScheduler
 warmup_steps: ${div:${common.max_steps}, 10}
 total_steps: ${common.max_steps}

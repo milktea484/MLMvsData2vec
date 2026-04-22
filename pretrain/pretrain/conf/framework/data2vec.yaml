@@ -1,3 +1,6 @@
+defaults:
+  - data2vec_schema
+
 _target_: pretrain.models.data2vecModel
 name: data2vec
 wandb_tags: ["data2vec"]
