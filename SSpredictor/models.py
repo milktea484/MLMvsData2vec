@@ -80,15 +80,22 @@ class KnotFoldModel(nn.Module):
                 with torch.inference_mode():
                     pretrain_outputs = pretrain_model._test(batch)
                 
-                # attentionを使用するかどうか
                 output_embeddings = pretrain_outputs["attn"] if self.use_attention else pretrain_outputs["repr"]
                 
                 # additional tokensを除去 (必要な場合)
-                lengths = batch["lengths"]
-                if output_embeddings.shape[1] > lengths.max():
-                    assert output_embeddings.shape[1] == lengths.max() + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[1]} vs {lengths.max()} + 2)"
+                max_length = max(batch["lengths"])
+                ## attentionの場合
+                if self.use_attention:
+                    if output_embeddings.shape[3] > max_length:
+                        assert output_embeddings.shape[3] == max_length + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[3]} vs {max_length} + 2)"
 
-                    output_embeddings = output_embeddings[:, :, 1:-1, 1:-1] if self.use_attention else output_embeddings[:, 1:-1, :] # (B, E, L+2, L+2) -> (B, E, L, L) or (B, L+2, E) -> (B, L, E)
+                        output_embeddings = output_embeddings[:, :, 1:-1, 1:-1] if self.use_attention else output_embeddings[:, 1:-1, :] # (B, E, L+2, L+2) -> (B, E, L, L)
+                ## attentionでない場合
+                else:
+                    if output_embeddings.shape[1] > max_length:
+                        assert output_embeddings.shape[1] == max_length + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[1]} vs {max_length} + 2)"
+
+                        output_embeddings = output_embeddings[:, 1:-1, :] # (B, L+2, E) -> (B, L, E)
 
                 pretrain_model_embeddings_list.append(output_embeddings)
             
@@ -251,7 +258,7 @@ class KnotFoldModel(nn.Module):
             dataset_embeddings = batch["embeddings"]
             
         # embeddingの結合
-        embeddings = self.concatenate_embeddings(pretrain_model_embeddings, dataset_embeddings, max_length=batch["lengths"].max())
+        embeddings = self.concatenate_embeddings(pretrain_model_embeddings, dataset_embeddings, max_length=max(batch["lengths"]))
 
         # forward
         loss = self(
@@ -285,7 +292,7 @@ class KnotFoldModel(nn.Module):
             dataset_embeddings = batch["embeddings"]
             
         # embeddingの結合
-        embeddings = self.concatenate_embeddings(pretrain_model_embeddings, dataset_embeddings, max_length=batch["lengths"].max())
+        embeddings = self.concatenate_embeddings(pretrain_model_embeddings, dataset_embeddings, max_length=max(batch["lengths"]))
 
         # forward
         results = self(
@@ -356,17 +363,17 @@ class KnotFoldModel(nn.Module):
                 avg_pre = 0.0
                 avg_rec = 0.0
                 
-                # 各配列について予測を行う
-                for batch in batch_list:
-                    seq_id = batch["seq_id"]
-                    sequence = batch["sequence"]
-                    length = batch["length"]
-                    gt_bp_matrix = batch["gt_bp_matrix"].to(torch.float32).detach().cpu() # (L, L)
-                    pred_bp_prob = batch["pred_bp_prob"].to(torch.float32).detach().cpu() # (L, L)
-                    ref_bp_prob = batch["ref_bp_prob"].to(torch.float32).detach().cpu() # (L, L)
+                here = os.path.dirname(__file__)
+                with tempfile.TemporaryDirectory() as d:
+                    # 各配列について予測を行う
+                    for batch in batch_list:
+                        seq_id = batch["seq_id"]
+                        sequence = batch["sequence"]
+                        length = batch["length"]
+                        gt_bp_matrix = batch["gt_bp_matrix"].to(torch.float32).detach().cpu() # (L, L)
+                        pred_bp_prob = batch["pred_bp_prob"].to(torch.float32).detach().cpu() # (L, L)
+                        ref_bp_prob = batch["ref_bp_prob"].to(torch.float32).detach().cpu() # (L, L)
 
-                    here = os.path.dirname(__file__)
-                    with tempfile.TemporaryDirectory() as d:
                         fg: np.ndarray = pred_bp_prob.numpy()
                         bg: np.ndarray = ref_bp_prob.numpy()
                         with open(os.path.join(d, "prior.mat"), 'w') as fp:
@@ -391,34 +398,34 @@ class KnotFoldModel(nn.Module):
                                 continue
                             l, r = line.split()
                             pairs.append([int(l), int(r)])
-                    
-                    pred_bp_matrix = bp2matrix(length, pairs).detach().cpu() # (L, L)
-                    
-                    # スコアの計算
-                    pre, rec, f1 = precision_recall_f1(gt_bp_matrix, pred_bp_matrix)
-                    avg_f1 += f1
-                    avg_pre += pre
-                    avg_rec += rec
-                    
-                    prediction_results.append({
-                        "seq_id": seq_id,
-                        "sequence": sequence,
-                        "length": length,
-                        "gt_bp_matrix": gt_bp_matrix,
-                        "pred_bp_matrix": pred_bp_matrix,
-                        "pairs": pairs,
-                        "scores": {
-                            "f1": f1,
-                            "precision": pre,
-                            "recall": rec,
-                        },
-                    })
-                    
-                    pbar.update(1)
-                    pbar.set_postfix({
-                        "kf_lambda": kf_lambda,
-                        "batch_f1": f1,
-                    })
+                        
+                        pred_bp_matrix = bp2matrix(length, pairs).detach().cpu() # (L, L)
+                        
+                        # スコアの計算
+                        pre, rec, f1 = precision_recall_f1(gt_bp_matrix, pred_bp_matrix)
+                        avg_f1 += f1
+                        avg_pre += pre
+                        avg_rec += rec
+                        
+                        prediction_results.append({
+                            "seq_id": seq_id,
+                            "sequence": sequence,
+                            "length": length,
+                            "gt_bp_matrix": gt_bp_matrix,
+                            "pred_bp_matrix": pred_bp_matrix,
+                            "pairs": pairs,
+                            "scores": {
+                                "f1": f1,
+                                "precision": pre,
+                                "recall": rec,
+                            },
+                        })
+                        
+                        pbar.update(1)
+                        pbar.set_postfix({
+                            "kf_lambda": kf_lambda,
+                            "batch_f1": f1,
+                        })
 
                 # スコアの平均を計算
                 avg_f1 /= len(batch_list)

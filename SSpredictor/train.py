@@ -27,36 +27,40 @@ setup_config()
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: MainConfig):
+
+    # DictConfigをpythonオブジェクトに変換 (listの読み込みのため)
+    structured_cfg = OmegaConf.merge(OmegaConf.structured(MainConfig), cfg)
+    main_cfg : MainConfig = OmegaConf.to_object(structured_cfg)
     
     # 設定の妥当性確認
-    validate_config(cfg)
+    validate_config(main_cfg)
     
     # 出力ディレクトリの設定
-    output_dir_path = Path(cfg.path.output_dir) 
+    output_dir_path = Path(main_cfg.path.output_dir) 
 
     ## 事前学習モデルとembedding fileの両方が指定されている時
-    if cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None and cfg.dataset.embedding_file is not None:
+    if main_cfg.pretrain.framework is not None and main_cfg.pretrain.timestamp is not None and main_cfg.dataset.embedding_file is not None:
         output_dir_path /= "combined_representation"
     
     ## 事前学習モデルのみの時
-    elif cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None:
-        if len(cfg.pretrain.framework) == 1 and len(cfg.pretrain.timestamp) == 1:
-            output_dir_path /= cfg.pretrain.framework[0] / cfg.pretrain.timestamp[0]
+    elif main_cfg.pretrain.framework is not None and main_cfg.pretrain.timestamp is not None:
+        if len(main_cfg.pretrain.framework) == 1 and len(main_cfg.pretrain.timestamp) == 1:
+            output_dir_path /= Path(main_cfg.pretrain.framework[0]) / main_cfg.pretrain.timestamp[0]
         else:
             output_dir_path /= "combined_representation"
         
     ## embedding fileがある時
-    elif cfg.dataset.embedding_file is not None:
-        if len(cfg.dataset.embedding_file) == 1:
-            output_dir_path /= Path(cfg.dataset.embedding_file[0]).stem
+    elif main_cfg.dataset.embedding_file is not None:
+        if len(main_cfg.dataset.embedding_file) == 1:
+            output_dir_path /= Path(main_cfg.dataset.embedding_file[0]).stem
         else:
             output_dir_path /= "combined_representation"
     
-    output_dir_path /= cfg.model.name / cfg.path.timestamp
+    output_dir_path /= Path(main_cfg.model.name) / main_cfg.path.timestamp
     
     ## additional_experiment_infoがある時
-    if cfg.experiment.additional_experiment_info is not None:
-        output_dir_path /= cfg.experiment.additional_experiment_info
+    if main_cfg.experiment.additional_experiment_info is not None:
+        output_dir_path /= main_cfg.experiment.additional_experiment_info
         
     output_dir_path.mkdir(parents=True, exist_ok=True)
     weight_dir = output_dir_path / "weights"
@@ -77,7 +81,7 @@ def main(cfg: MainConfig):
     warnings.filterwarnings("ignore", category=UserWarning)
 
     # 使用デバイスの設定
-    if torch.cuda.is_available() and cfg.common.use_gpu:
+    if torch.cuda.is_available() and main_cfg.common.use_gpu:
         device = torch.device(f"cuda:{torch.cuda.current_device()}")
         logger.info("Using GPU for training.")
     else:
@@ -86,18 +90,18 @@ def main(cfg: MainConfig):
     ctx = torch.autocast(device_type=device.type, dtype=torch.bfloat16)
 
     # seed固定
-    random.seed(cfg.common.seed)
-    np.random.seed(cfg.common.seed)
-    torch.manual_seed(cfg.common.seed)
+    random.seed(main_cfg.common.seed)
+    np.random.seed(main_cfg.common.seed)
+    torch.manual_seed(main_cfg.common.seed)
     torch.backends.cudnn.benchmark = False  # 再現性を無視してでも畳み込み演算速度を上げるオプション
     torch.backends.cudnn.deterministic = True  # pytorchで非決定的な操作を決定的なものにするオプション
     
     # wandbの初期化
     wandb.init(
         project=f"SSprediction",
-        config=OmegaConf.to_container(cfg, resolve=True),
-        name=f"{cfg.experiment.name}_{cfg.path.timestamp}" if cfg.experiment.additional_experiment_info is None else f"{cfg.experiment.name}_{cfg.experiment.additional_experiment_info}_{cfg.path.timestamp}",
-        tags=[cfg.experiment.name, cfg.experiment.additional_experiment_info, cfg.model.name],
+        config=main_cfg,
+        name=f"{main_cfg.experiment.name}_{main_cfg.path.timestamp}" if main_cfg.experiment.additional_experiment_info is None else f"{main_cfg.experiment.name}_{main_cfg.experiment.additional_experiment_info}_{main_cfg.path.timestamp}",
+        tags=[main_cfg.experiment.name, main_cfg.experiment.additional_experiment_info, main_cfg.model.name],
         dir=output_dir_path.resolve(),
     )
 
@@ -107,9 +111,9 @@ def main(cfg: MainConfig):
     # 表現学習モデルの準備
     ## 事前学習モデルのパスのリストを作成. 事前学習モデルが指定されていない場合は空リストのままにする
     pretrain_model_paths = []
-    if cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None:
-        for framework, timestamp in zip(cfg.pretrain.framework, cfg.pretrain.timestamp):
-            pretrain_model_path = Path(cfg.path.pretrain_model_dir) / framework / timestamp
+    if main_cfg.pretrain.framework is not None and main_cfg.pretrain.timestamp is not None:
+        for framework, timestamp in zip(main_cfg.pretrain.framework, main_cfg.pretrain.timestamp):
+            pretrain_model_path = Path(main_cfg.path.pretrain_model_dir) / framework / timestamp
             if not pretrain_model_path.exists():
                 raise FileNotFoundError(f"Pretrain model path {pretrain_model_path} does not exist.")
             pretrain_model_paths.append(pretrain_model_path)
@@ -120,11 +124,11 @@ def main(cfg: MainConfig):
     if pretrain_model_paths:
         # checkpointsの設定
         checkpoints: list[str] = []
-        # checkpointがfinal単体の場合, pretrain_model_pathsの数だけfinalを追加. そうでない場合はcfg.pretrain.checkpointをそのまま使用
-        if len(cfg.pretrain.checkpoint) == 1 and cfg.pretrain.checkpoint[0] == "final":
+        # checkpointがfinal単体の場合, pretrain_model_pathsの数だけfinalを追加. そうでない場合はmain_cfg.pretrain.checkpointをそのまま使用
+        if len(main_cfg.pretrain.checkpoint) == 1 and main_cfg.pretrain.checkpoint[0] == "final":
             checkpoints = ["final"] * len(pretrain_model_paths)
         else:
-            checkpoints = cfg.pretrain.checkpoint
+            checkpoints = main_cfg.pretrain.checkpoint
         
         if len(checkpoints) != len(pretrain_model_paths):
             raise ValueError("Length of pretrain.checkpoint must be the same as the number of pretrain models specified by pretrain.framework and pretrain.timestamp.")
@@ -154,7 +158,7 @@ def main(cfg: MainConfig):
             if checkpoint == "final":
                 checkpoint = pretrain_cfg.common.max_steps
 
-            pretrain_weight = f"weight_{checkpoint}.pth" if not cfg.experiment.use_teacher else f"teacher_weight_{checkpoint}.pth"
+            pretrain_weight = f"weight_{checkpoint}.pth" if not main_cfg.experiment.use_teacher else f"teacher_weight_{checkpoint}.pth"
             pretrain_model._load_state_dict(torch.load(pretrain_model_path / pretrain_weight, map_location=device))
 
             # 事前学習モデルの情報を保存
@@ -171,7 +175,7 @@ def main(cfg: MainConfig):
         use_additional_token_list = []
         for pretrain_cfg in pretrain_model_cfgs:
             use_additional_token_list.append(pretrain_cfg.experiment.use_additional_token)
-            if cfg.experiment.use_attention:
+            if main_cfg.experiment.use_attention:
                 embed_dim = pretrain_cfg.framework.arch.n_layers * pretrain_cfg.framework.arch.n_heads
             else:
                 embed_dim = pretrain_cfg.model_size.embed_dim
@@ -181,12 +185,12 @@ def main(cfg: MainConfig):
             raise ValueError("When using multiple pretrain models, the setting of experiment.use_additional_token must be the same across all pretrain models.")
 
     # embedding_fileが指定されている場合, その埋め込み表現を使用
-    if cfg.dataset.embedding_file is not None:
-        logger.info(f"Using embedding file {cfg.dataset.embedding_file} for training.")
+    if main_cfg.dataset.embedding_file is not None:
+        logger.info(f"Using embedding file {main_cfg.dataset.embedding_file} for training.")
     
     # データローダーの設定
     train_loader = create_dataloader(
-        config=cfg,
+        config=main_cfg,
         split="train",
         pretrain_cfgs=[info["config"] for info in pretrain_model_infos] if pretrain_model_infos else None,
     )
@@ -194,29 +198,28 @@ def main(cfg: MainConfig):
     ## 評価用はイテレータ
     val_iterators = {
         "train": create_batch_iterator(
-            config=cfg,
+            config=main_cfg,
             split="train",
             pretrain_cfgs=[info["config"] for info in pretrain_model_infos] if pretrain_model_infos else None
         ),
     }
-    if cfg.common.validation:
+    if main_cfg.common.validation:
         val_iterators["validation"] = create_batch_iterator(
-            config=cfg,
+            config=main_cfg,
             split="validation",
             pretrain_cfgs=[info["config"] for info in pretrain_model_infos] if pretrain_model_infos else None
         )
 
     # knotfoldを使用する場合はreference用のデータローダーも作成
-    if cfg.model.name == "knotfold":
+    if main_cfg.model.name == "knotfold":
         ref_loader = create_dataloader(
-            config=cfg,
+            config=main_cfg,
             split="reference",
             pretrain_cfgs=[info["config"] for info in pretrain_model_infos] if pretrain_model_infos else None,
-            reference_embedding_dim_base=0
         )
 
-    total_steps = cfg.common.max_epochs * len(train_loader) # 二次構造予測モデルの学習ステップ数
-    eval_interval = max(1, len(train_loader) // cfg.common.eval_per_epoch) # 評価の頻度 (train_loaderの長さに基づいて決定)
+    total_steps = main_cfg.common.max_epochs * len(train_loader) # 二次構造予測モデルの学習ステップ数
+    eval_interval = max(1, len(train_loader) // main_cfg.common.eval_per_epoch) # 評価の頻度 (train_loaderの長さに基づいて決定)
 
     # embedding次元の取得
     embedding_dim = 0
@@ -226,68 +229,68 @@ def main(cfg: MainConfig):
         embedding_dim += total_pretrain_embedding_dim
     
     ## embedding_fileから得られる埋め込みの次元.
-    if cfg.dataset.embedding_file is not None:
+    if main_cfg.dataset.embedding_file is not None:
         embedding_dim += get_embedding_dim(train_loader)
         
-    logger.info(f"embedding dimension: {embedding_dim} (from number of pretrain models: {len(pretrain_model_infos)}, from embedding file: {len(cfg.dataset.embedding_file) if cfg.dataset.embedding_file is not None else 0})")
+    logger.info(f"embedding dimension: {embedding_dim} (from number of pretrain models: {len(pretrain_model_infos)}, from embedding file: {len(main_cfg.dataset.embedding_file) if main_cfg.dataset.embedding_file is not None else 0})")
     
     logger.info(f"Run on {output_dir_path}, with device {device}")
-    logger.info(f"Model: {cfg.model.name}")
-    logger.info(f"Setting seed: {cfg.common.seed}")
-    logger.info(f"Experiment: {cfg.experiment.name}")
+    logger.info(f"Model: {main_cfg.model.name}")
+    logger.info(f"Setting seed: {main_cfg.common.seed}")
+    logger.info(f"Experiment: {main_cfg.experiment.name}")
     
     # iteration
-    for iteration in range(cfg.common.iterations):
-        logger.info(f"--------Iteration {iteration + 1}/{cfg.common.iterations}--------")
+    for iteration in range(main_cfg.common.iterations):
+        logger.info(f"--------Iteration {iteration + 1}/{main_cfg.common.iterations}--------")
 
         # 二次構造予測モデルの動的インポートと初期化
         model: KnotFoldModel = hydra.utils.instantiate(
-            cfg.model,
+            main_cfg.model,
             pretrain_models=[info["model"] for info in pretrain_model_infos] if pretrain_model_infos else None,
             embedding_dim=embedding_dim,
-            use_attention=cfg.experiment.use_attention,
+            use_attention=main_cfg.experiment.use_attention,
             device=device
         )
         
-        optimizer: torch.optim.Optimizer = hydra.utils.instantiate(cfg.optimizer, model.parameters())
+        optimizer: torch.optim.Optimizer = hydra.utils.instantiate(main_cfg.optimizer, model.parameters())
         
         lr_scheduler = CosineScheduler(
             optimizer=optimizer,
             total_steps=total_steps,
             warmup_steps=total_steps // 10,  # 学習ステップの10%をウォームアップに使用
-            max_lr=cfg.model.lr,
-            min_lr=cfg.model.min_lr,
+            max_lr=main_cfg.model.lr,
+            min_lr=main_cfg.model.min_lr,
         )
         
         # reference用のモデルの動的インポートと初期化 (今はknotfoldのみ)
-        if cfg.model.name == "knotfold":
+        if main_cfg.model.name == "knotfold":
             ref_model: KnotFoldModel = hydra.utils.instantiate(
-                cfg.model,
+                main_cfg.model,
                 pretrain_models=[info["model"] for info in pretrain_model_infos] if pretrain_model_infos else None,
                 embedding_dim=embedding_dim,
-                use_attention=cfg.experiment.use_attention,
+                use_attention=main_cfg.experiment.use_attention,
                 device=device,
                 reference=True
             )
             
-            ref_optimizer: torch.optim.Optimizer = hydra.utils.instantiate(cfg.optimizer, ref_model.parameters())
+            ref_optimizer: torch.optim.Optimizer = hydra.utils.instantiate(main_cfg.optimizer, ref_model.parameters())
             
-            ref_total_steps = cfg.model.max_ref_epochs * len(ref_loader) # リファレンスモデルの学習ステップ数
+            ref_total_steps = main_cfg.model.max_ref_epochs * len(ref_loader) # リファレンスモデルの学習ステップ数
             ref_lr_scheduler = CosineScheduler(
                 optimizer=ref_optimizer,
                 total_steps=ref_total_steps,
                 warmup_steps=ref_total_steps // 10,  # 学習ステップの10%をウォームアップに使用
-                max_lr=cfg.model.lr,
-                min_lr=cfg.model.min_lr,
+                max_lr=main_cfg.model.lr,
+                min_lr=main_cfg.model.min_lr,
             )
         
         # 学習ループの開始
         model = torch.compile(model)
-        if cfg.model.name == "knotfold":
+        if main_cfg.model.name == "knotfold":
             ref_model = torch.compile(ref_model)
         
         # 初めにreference modelの学習を行う (knotfoldのみ)
-        if cfg.model.name == "knotfold":
+        if main_cfg.model.name == "knotfold":
             # referenceモデルの保存用
             min_loss = float("inf")
             best_model_state_dict = None
@@ -300,7 +303,7 @@ def main(cfg: MainConfig):
             ref_model.train()
             logger.info("--------Start training reference model--------")
             with tqdm(total=ref_total_steps, desc="Reference Model Training") as ref_pbar:
-                for ref_epoch in range(cfg.model.max_ref_epochs):
+                for ref_epoch in range(main_cfg.model.max_ref_epochs):
                     for ref_batch_idx, ref_batch in enumerate(ref_loader):
                         with ctx:
                             ref_loss = ref_model._train(ref_batch)
@@ -313,28 +316,28 @@ def main(cfg: MainConfig):
                         if step % eval_interval == 0 or step == ref_total_steps - 1:
                             ref_loss_log[step] = ref_loss.item()
                             
-                            if cfg.common.validation:
+                            if main_cfg.common.validation:
                                 ref_model.eval()
                                 with torch.no_grad():
                                     val_iterator = val_iterators["validation"]
                                     val_loss = 0.0
-                                    for val_step in range(cfg.common.eval_steps):
+                                    for val_step in range(main_cfg.common.eval_steps):
                                         # create_batch_iterator は (batch, epoch) を返すので batch のみ取り出す
                                         val_batch, _ = next(val_iterator)
                                         val_loss += ref_model._test(val_batch)["loss"].item()
-                                    val_loss /= cfg.common.eval_steps
+                                    val_loss /= main_cfg.common.eval_steps
                                     ref_val_loss_log[step] = val_loss
                                     
                                     # モデルの保存
                                     if val_loss < min_loss:
                                         min_loss = val_loss
                                         best_model_state_dict = copy.deepcopy(ref_model.state_dict())
-                                        save_epoch = step / (eval_interval * cfg.common.eval_per_epoch)
+                                        save_epoch = step / (eval_interval * main_cfg.common.eval_per_epoch)
                             else:
                                 if ref_loss < min_loss:
                                     min_loss = ref_loss
                                     best_model_state_dict = copy.deepcopy(ref_model.state_dict())
-                                    save_epoch = step / (eval_interval * cfg.common.eval_per_epoch)
+                                    save_epoch = step / (eval_interval * main_cfg.common.eval_per_epoch)
                                     
                                 ref_model.train()
                         
@@ -360,7 +363,7 @@ def main(cfg: MainConfig):
         model.train()
         logger.info("--------Start training main model--------")
         with tqdm(total=total_steps, desc="Main Model Training") as pbar:
-            for epoch in range(cfg.common.max_epochs):
+            for epoch in range(main_cfg.common.max_epochs):
                 for train_batch_idx, batch in enumerate(train_loader):
                     with ctx:
                         loss = model._train(batch)
@@ -372,7 +375,7 @@ def main(cfg: MainConfig):
                     # 学習を進める前にvalidationとwandbへのログ出力
                     if step % eval_interval == 0 or step == total_steps - 1:
                         # referenceモデルのwandbへのログ出力 (knotfoldのみ)
-                        if cfg.model.name == "knotfold":
+                        if main_cfg.model.name == "knotfold":
                             ref_loss = ref_loss_log.get(step, None)
                             ref_val_loss = ref_val_loss_log.get(step, None)
                             if ref_loss is not None:
@@ -384,11 +387,11 @@ def main(cfg: MainConfig):
                             model.eval()
                             with torch.no_grad():
                                 val_loss = 0.0
-                                for val_step in range(cfg.common.eval_steps):
+                                for val_step in range(main_cfg.common.eval_steps):
                                     # create_batch_iterator は (batch, epoch) を返すので batch のみ取り出す
                                     val_batch, _ = next(val_iterator)
                                     val_loss += model._test(val_batch)["loss"].item()
-                                val_loss /= cfg.common.eval_steps
+                                val_loss /= main_cfg.common.eval_steps
                                 wandb.log({f"{split}_loss_{iteration}": val_loss}, step=step)
                                 
                                 # モデルの保存
@@ -396,12 +399,12 @@ def main(cfg: MainConfig):
                                     if val_loss < min_loss:
                                         min_loss = val_loss
                                         best_model_state_dict = copy.deepcopy(model.state_dict())
-                                        save_epoch = step / (eval_interval * cfg.common.eval_per_epoch)
+                                        save_epoch = step / (eval_interval * main_cfg.common.eval_per_epoch)
                                 elif split == "train":
                                     if val_loss < min_loss:
                                         min_loss = val_loss
                                         best_model_state_dict = copy.deepcopy(model.state_dict())
-                                        save_epoch = step / (eval_interval * cfg.common.eval_per_epoch)
+                                        save_epoch = step / (eval_interval * main_cfg.common.eval_per_epoch)
 
                             model.train()
                     

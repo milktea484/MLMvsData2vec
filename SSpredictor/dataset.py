@@ -368,7 +368,8 @@ def create_batch_iterator(config: MainConfig, split: str, pretrain_cfgs: list[Pr
     epoch = 0
     while True:
         for batch in loader:
-            batch["token_seqs"] = batch["token_seqs"].to(torch.long)
+            if batch["token_seqs"] is not None:
+                batch["token_seqs"] = batch["token_seqs"].to(torch.long)
             yield batch, epoch
         epoch += 1
             

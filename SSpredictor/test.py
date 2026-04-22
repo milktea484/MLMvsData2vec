@@ -13,7 +13,7 @@ from conf.test_config import MainConfig
 from dataset import create_dataloader
 from metrics import calculate_auc, calculate_confusion_matrix
 from models import KnotFoldModel
-from omegaconf import OmegaConf
+from omegaconf import ListConfig, OmegaConf
 from tqdm import tqdm
 from utils import (get_embedding_dim, setup_test_config, visualize_auc,
                    visualize_probability_matrix)
@@ -25,40 +25,44 @@ setup_test_config()
 
 @hydra.main(version_base=None, config_path="conf", config_name="test_config")
 def main(cfg: MainConfig):
-    
+
+    # DictConfigをpythonオブジェクトに変換 (listの読み込みのため)
+    structured_cfg = OmegaConf.merge(OmegaConf.structured(MainConfig), cfg)
+    main_cfg : MainConfig = OmegaConf.to_object(structured_cfg)
+
     # 訓練済みモデルのPathの設定
-    train_model_path = Path(cfg.path.output_dir)
+    train_model_path = Path(main_cfg.path.output_dir)
 
     ## 事前学習モデルとembedding_fileの両方がある時
-    if cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None and cfg.dataset.embedding_file is not None:
+    if main_cfg.pretrain.framework is not None and main_cfg.pretrain.timestamp is not None and main_cfg.dataset.embedding_file is not None:
         train_model_path /= "combined_representation"
     
     ## 事前学習モデルのみの時
-    elif cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None:
-        if len(cfg.pretrain.framework) == 1 and len(cfg.pretrain.timestamp) == 1:
-            train_model_path /= cfg.pretrain.framework[0] / cfg.pretrain.timestamp[0]
+    elif main_cfg.pretrain.framework is not None and main_cfg.pretrain.timestamp is not None:
+        if len(main_cfg.pretrain.framework) == 1 and len(main_cfg.pretrain.timestamp) == 1:
+            train_model_path /= Path(main_cfg.pretrain.framework[0]) / main_cfg.pretrain.timestamp[0]
         else:
             train_model_path /= "combined_representation"
         
     ## embedding fileのみの時
-    elif cfg.dataset.embedding_file is not None:
-        if len(cfg.dataset.embedding_file) == 1:
-            train_model_path /= Path(cfg.dataset.embedding_file[0]).stem
+    elif main_cfg.dataset.embedding_file is not None:
+        if len(main_cfg.dataset.embedding_file) == 1:
+            train_model_path /= Path(main_cfg.dataset.embedding_file[0]).stem
         else:
             train_model_path /= "combined_representation"
     
-    train_model_path /= cfg.SStrain_model_path.model_name / cfg.SStrain_model_path.timestamp
+    train_model_path /= Path(main_cfg.SStrain_model_path.model_name) / main_cfg.SStrain_model_path.timestamp
     
     ## additional_experiment_infoがある時
-    if cfg.experiment.additional_experiment_info is not None:
-        train_model_path /= cfg.experiment.additional_experiment_info
+    if main_cfg.experiment.additional_experiment_info is not None:
+        train_model_path /= main_cfg.experiment.additional_experiment_info
 
     ## ディレクトリの存在確認
     if not train_model_path.exists():
         raise FileNotFoundError(f"Model path {train_model_path} does not exist.")
     
     # 出力ディレクトリの作成
-    output_dir_path = train_model_path / "test_results" / f"{cfg.path.timestamp}"
+    output_dir_path = train_model_path / "test_results" / f"{main_cfg.path.timestamp}"
     output_dir_path.mkdir(parents=True, exist_ok=True)
     
     # logの設定
@@ -76,32 +80,33 @@ def main(cfg: MainConfig):
     warnings.filterwarnings("ignore", category=UserWarning)
     
     # 訓練済みモデルと対応するhydraconfigの読み込み
-    train_cfg_path = Path(cfg.path.output_dir) / "hydra_configs" / cfg.SStrain_model_path.timestamp / "train_config/.hydra/config.yaml"
+    train_cfg_path = Path(main_cfg.path.output_dir) / "hydra_configs" / main_cfg.SStrain_model_path.timestamp / "train_config/.hydra/config.yaml"
     if not train_cfg_path.exists():
         raise FileNotFoundError(f"Train config path {train_cfg_path} does not exist.")
     
-    train_cfg: TrainMainConfig = OmegaConf.load(train_cfg_path)
+    structured_train_cfg = OmegaConf.merge(OmegaConf.structured(TrainMainConfig), OmegaConf.load(train_cfg_path))
+    train_cfg: TrainMainConfig = OmegaConf.to_object(structured_train_cfg)
     
     # 設定の上書き
     ## test_file
-    train_cfg.dataset.test_file = cfg.dataset.test_file
+    train_cfg.dataset.test_file = main_cfg.dataset.test_file
     
     ## iterations
-    if cfg.common.iterations is None:
-        cfg.common.iterations = train_cfg.common.iterations
+    if main_cfg.common.iterations is None:
+        main_cfg.common.iterations = train_cfg.common.iterations
     else:
-        if cfg.common.iterations > train_cfg.common.iterations:
-            raise ValueError(f"Test config iterations {cfg.common.iterations} cannot be greater than train config iterations {train_cfg.common.iterations}.")
-    if cfg.common.iterations < 1:
+        if main_cfg.common.iterations > train_cfg.common.iterations:
+            raise ValueError(f"Test config iterations {main_cfg.common.iterations} cannot be greater than train config iterations {train_cfg.common.iterations}.")
+    if main_cfg.common.iterations < 1:
         raise ValueError(f"Test config iterations must be a positive integer.")
     
     ## knotfoldのkf_lambdaのリストの作成
     kf_lambda_list = None
     if train_cfg.model.name == "knotfold":
-        kf_lambda_list = np.arange(cfg.experiment.kf_lambda_cfg.min, cfg.experiment.kf_lambda_cfg.max + cfg.experiment.kf_lambda_cfg.step, cfg.experiment.kf_lambda_cfg.step).tolist()
+        kf_lambda_list = np.arange(main_cfg.experiment.kf_lambda_cfg.min, main_cfg.experiment.kf_lambda_cfg.max + main_cfg.experiment.kf_lambda_cfg.step, main_cfg.experiment.kf_lambda_cfg.step).tolist()
 
     # 使用デバイスの設定
-    if torch.cuda.is_available() and cfg.common.use_gpu:
+    if torch.cuda.is_available() and main_cfg.common.use_gpu:
         device = torch.device(f"cuda:{torch.cuda.current_device()}")
         logger.info("Using GPU for training.")
     else:
@@ -110,9 +115,9 @@ def main(cfg: MainConfig):
     ctx = torch.autocast(device_type=device.type, dtype=torch.bfloat16)
 
     # seed固定
-    random.seed(cfg.common.seed)
-    np.random.seed(cfg.common.seed)
-    torch.manual_seed(cfg.common.seed)
+    random.seed(main_cfg.common.seed)
+    np.random.seed(main_cfg.common.seed)
+    torch.manual_seed(main_cfg.common.seed)
     torch.backends.cudnn.benchmark = False  # 再現性を無視してでも畳み込み演算速度を上げるオプション
     torch.backends.cudnn.deterministic = True  # pytorchで非決定的な操作を決定的なものにするオプション
     
@@ -221,16 +226,16 @@ def main(cfg: MainConfig):
     
     logger.info(f"Run on {train_model_path}, with device {device}")
     logger.info(f"Model: {train_cfg.model.name}")
-    logger.info(f"Setting seed: {cfg.common.seed}")
-    logger.info(f"Experiment name: {cfg.experiment.name}")
+    logger.info(f"Setting seed: {main_cfg.common.seed}")
+    logger.info(f"Experiment name: {main_cfg.experiment.name}")
     
     # iterationごとのモデルのリスト
     models = []
     if train_cfg.model.name == "knotfold":
         ref_models = []
     
-    for iteration in range(cfg.common.iterations):
-        logger.info(f"--------Iteration {iteration + 1}/{cfg.common.iterations}--------")
+    for iteration in range(main_cfg.common.iterations):
+        logger.info(f"--------Iteration {iteration + 1}/{main_cfg.common.iterations}--------")
 
         # 二次構造予測モデルの動的インポートと初期化
         model: KnotFoldModel = hydra.utils.instantiate(
@@ -267,7 +272,7 @@ def main(cfg: MainConfig):
         overall_results["ref_test_losses"] = []
     
     # probability_matrixの保存用
-    if cfg.common.save_probability_matrix:
+    if main_cfg.common.save_probability_matrix:
         probability_matrix_path = output_dir_path / "predicted_probability_matrices.h5"
         hdf5_file = h5py.File(probability_matrix_path, "w")
     
@@ -302,7 +307,7 @@ def main(cfg: MainConfig):
         
         with ctx, torch.inference_mode():
             # iterationごとにモデルのテストを実行
-            for iteration in range(cfg.common.iterations):
+            for iteration in range(main_cfg.common.iterations):
                 outputs = models[iteration]._test(batch)
                 iter_results["logits"].append(outputs["logits"])
                 iter_results["test_losses"].append(outputs["loss"])
@@ -335,7 +340,7 @@ def main(cfg: MainConfig):
 
                 # 全体の結果の保存
                 overall_results["test_losses"].append(mean_test_loss.detach().cpu().item())
-                if cfg.common.save_probability_matrix:
+                if main_cfg.common.save_probability_matrix:
                     hdf5_file.create_dataset(seq_id, data=pred_bp_prob.to(torch.float32).detach().cpu().numpy())
                     
                 # 初回ならばシーケンスごとの予測確率行列を可視化して保存
@@ -348,11 +353,11 @@ def main(cfg: MainConfig):
                     )
 
                 # 混合行列の更新
-                if cfg.common.evaluation:
+                if main_cfg.common.evaluation:
                     batch_confusion_dict = calculate_confusion_matrix(
                         gt_bp_matrix=gt_bp_matrix.to(torch.float32).detach().cpu(),
                         probability_matrix=pred_bp_prob.to(torch.float32).detach().cpu(),
-                        step=cfg.evaluation.auc_step
+                        step=main_cfg.evaluation.auc_step
                     )
                     confusion_dict["tp"] += batch_confusion_dict["tp"]
                     confusion_dict["tn"] += batch_confusion_dict["tn"]
@@ -360,7 +365,7 @@ def main(cfg: MainConfig):
                     confusion_dict["fn"] += batch_confusion_dict["fn"]
 
                 # predictの引数の用意
-                if cfg.common.prediction:
+                if main_cfg.common.prediction:
                     predict_args_batch = {
                         "seq_id": seq_id,
                         "sequence": sequence,
@@ -382,11 +387,11 @@ def main(cfg: MainConfig):
         overall_results["ref_test_losses"] = np.mean(overall_results["ref_test_losses"])
     
     # probability_matrixの保存を閉じる
-    if cfg.common.save_probability_matrix:
+    if main_cfg.common.save_probability_matrix:
         hdf5_file.close()
     
     # 評価
-    if cfg.common.evaluation:
+    if main_cfg.common.evaluation:
         # 全体のROC AUCやPR AUCの計算
         figure_materials, auc_dict = calculate_auc(confusion_dict)
         auc_figure_path = output_dir_path / "auc_curve.png"
@@ -399,7 +404,7 @@ def main(cfg: MainConfig):
         logger.info(f"ROC AUC: {auc_dict['roc_auc']:.4f}, PR AUC: {auc_dict['pr_auc']:.4f}")
     
     # 予測
-    if cfg.common.prediction:
+    if main_cfg.common.prediction:
         results = model.predict(**predict_args)
         
         # 結果の保存

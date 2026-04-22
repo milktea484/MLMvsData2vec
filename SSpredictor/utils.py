@@ -226,7 +226,7 @@ def validate_config(cfg: MainConfig):
     # pretrain.frameworkとpretrain.timestampの両方が指定されている時
     if cfg.pretrain.framework is not None and cfg.pretrain.timestamp is not None:
         # 両方ともlistで同じ長さでなければエラー
-        assert isinstance(cfg.pretrain.framework, list) and isinstance(cfg.pretrain.timestamp, list), "pretrain.framework and pretrain.timestamp must both be lists if one of them is a list."
+        assert isinstance(cfg.pretrain.framework, list) and isinstance(cfg.pretrain.timestamp, list), f"pretrain.framework and pretrain.timestamp must both be lists if one of them is a list. type(pretrain.framework): {type(cfg.pretrain.framework)}, type(pretrain.timestamp): {type(cfg.pretrain.timestamp)}"
         if len(cfg.pretrain.framework) != len(cfg.pretrain.timestamp):
             raise ValueError("Length of pretrain.framework and pretrain.timestamp lists must be the same.")
 
