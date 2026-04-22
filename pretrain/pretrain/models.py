@@ -83,17 +83,6 @@ class MLMModel(BaseModel):
 
         # モデルの構築
         self.model = CommonModule(arch, self.padding_idx, self.num_tokens, device)
-
-        # regression headの構築 (MLMでは単純に線形層)
-        curr_dim = arch["embed_dim"]
-        projs = []
-        for i in range(arch["n_head_layers"] - 1):
-            next_dim = arch["embed_dim"] * 2 if i == 0 else curr_dim
-            projs.append(nn.Linear(curr_dim, next_dim))
-            projs.append(nn.GELU())
-            curr_dim = next_dim
-        projs.append(nn.Linear(curr_dim, arch["embed_dim"]))
-        self.regression_head = nn.Sequential(*projs)
         
         # 分類器の構築
         self.classifier = nn.Linear(arch["embed_dim"], self.num_tokens)
@@ -194,9 +183,6 @@ class MLMModel(BaseModel):
             
         x = x[masked_idxes_tensor]  # (num_masked_positions, embed_dim)
         target = target[masked_idxes_tensor]  # (num_masked_positions,)
-
-        # regression headの適用
-        x = self.regression_head(x)  # (num_masked_positions, embed_dim)
             
         # 分類器の適用
         logits = self.classifier(x)  # (num_masked_positions, vocab_size)
@@ -737,4 +723,3 @@ class data2vecModel(BaseModel):
         torch.save(self.state_dict(), save_path / f"weight_{step}.pth")
         torch.save(self.ema.model.state_dict(), save_path / f"teacher_weight_{step}.pth")
 
-        
