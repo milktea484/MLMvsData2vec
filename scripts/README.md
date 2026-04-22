@@ -10,15 +10,15 @@
     1. 事前学習モデルが1つの場合（data2vec、最終 checkpoint、simple アーキテクチャ）  
         ```bash
         python scripts/run_archiveii_famfold.py \
-          'train:pretrain.framework=data2vec' \
-          'train:pretrain.timestamp=20260307T153057' \
-          'train:pretrain.checkpoint=final' \
+          'train:pretrain.framework=["data2vec"]' \
+          'train:pretrain.timestamp=["20260307T153057"]' \
+          'train:pretrain.checkpoint=["final"]' \
           'train:model.arch.use_simple=true'
         ```
 
         一行バージョン
         ```bash
-        python scripts/run_archiveii_famfold.py 'train:pretrain.framework=data2vec' 'train:pretrain.timestamp=20260406T124643' 'train:pretrain.checkpoint=final' 'train:model.arch.use_simple=true'
+        python scripts/run_archiveii_famfold.py 'train:pretrain.framework=["data2vec"]' 'train:pretrain.timestamp=["20260406T124643"]' 'train:pretrain.checkpoint=["final"]' 'train:model.arch.use_simple=true'
         ```
 
     2. 事前学習モデルを複数用いる場合（data2vec, mlm、最終 checkpoint、simple アーキテクチャ）  
@@ -29,13 +29,13 @@
         python scripts/run_archiveii_famfold.py \
           'train:pretrain.framework=["data2vec","mlm"]' \
           'train:pretrain.timestamp=["20260307T153057","20260316T030756"]' \
-          'train:pretrain.checkpoint=final' \
+          'train:pretrain.checkpoint=["final"]' \
           'train:model.arch.use_simple=true'
         ```
 
         一行バージョン
         ```bash
-        python scripts/run_archiveii_famfold.py 'train:pretrain.framework=["data2vec","mlm"]' 'train:pretrain.timestamp=["20260307T153057","20260316T030756"]' 'train:pretrain.checkpoint=final' 'train:model.arch.use_simple=true'
+        python scripts/run_archiveii_famfold.py 'train:pretrain.framework=["data2vec","mlm"]' 'train:pretrain.timestamp=["20260307T153057","20260316T030756"]' 'train:pretrain.checkpoint=["final"]' 'train:model.arch.use_simple=true'
         ```
 
 
@@ -43,13 +43,13 @@
     1. 埋め込みファイルが1つの場合（simple アーキテクチャ）
         ```bash
         python scripts/run_archiveii_famfold.py \
-          'train:dataset.embedding_file=ArchiveII_data2vec.h5' \
+          'train:dataset.embedding_file=["ArchiveII_data2vec.h5"]' \
           'train:model.arch.use_simple=true'
         ```
 
         一行バージョン
         ```bash
-        python scripts/run_archiveii_famfold.py 'train:dataset.embedding_file=ArchiveII_data2vec.h5' 'train:model.arch.use_simple=true'
+        python scripts/run_archiveii_famfold.py 'train:dataset.embedding_file=["ArchiveII_data2vec.h5"]' 'train:model.arch.use_simple=true'
         ```
 
     2. 埋め込みファイルが複数の場合（simple アーキテクチャ）  
@@ -73,9 +73,9 @@
 
     ```bash
     python scripts/run_archiveii_famfold.py \
-      'train:pretrain.framework=data2vec' \
-      'train:pretrain.timestamp=20260307T153057' \
-      'train:pretrain.checkpoint=final' \
+      'train:pretrain.framework=["data2vec"]' \
+      'train:pretrain.timestamp=["20260307T153057"]' \
+      'train:pretrain.checkpoint=["final"]' \
       'train:dataset.embedding_file=["ArchiveII_data2vec.h5","ArchiveII_mlm.h5"]' \
       'train:model.arch.use_simple=true'
     ```
@@ -84,6 +84,7 @@
 
 - `train:model=` を明示的に指定しない場合、二次構造予測モデルは自動的に `model=knotfold` が選択され、その情報が test 側 (`SStrain_model_path.model_name`) にも引き継がれます。
 - 上記の例では simple アーキテクチャ (`model.arch.use_simple=true`) を指定しており、KnotFold の中でも線形層のみの軽量な構成で学習・推論を行います。
+- familyを指定する場合，```'family=["tRNA","23s"]'```のように，リスト形式の引数を渡してください．
 
 - pretrain.py
   - pretrain パッケージを用いた事前学習や埋め込み抽出の一括実行用スクリプト。

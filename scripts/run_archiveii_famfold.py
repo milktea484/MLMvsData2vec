@@ -70,6 +70,10 @@ def main():
         for arg in train_args:
             if arg.startswith("pretrain.framework="):
                 pretrain_framework = arg.replace("pretrain.framework=", "", 1)
+                if pretrain_framework.startswith("[") and pretrain_framework.endswith("]"):
+                    pretrain_framework = json.loads(pretrain_framework)
+                else:
+                    raise ValueError(f"Invalid format for pretrain.framework: {pretrain_framework}. It should be a JSON list (e.g., '[\"framework1\", \"framework2\"]') or a single string (e.g., 'framework1').")
                 test_args.append(arg)
                 break
             
@@ -78,6 +82,10 @@ def main():
         for arg in train_args:
             if arg.startswith("pretrain.timestamp="):
                 pretrain_timestamp = arg.replace("pretrain.timestamp=", "", 1)
+                if pretrain_timestamp.startswith("[") and pretrain_timestamp.endswith("]"):
+                    pretrain_timestamp = json.loads(pretrain_timestamp)
+                else:
+                    raise ValueError(f"Invalid format for pretrain.timestamp: {pretrain_timestamp}. It should be a JSON list (e.g., '[\"timestamp1\", \"timestamp2\"]') or a single string (e.g., 'timestamp1').")
                 test_args.append(arg)
                 break
 
@@ -88,6 +96,10 @@ def main():
         for arg in train_args:
             if arg.startswith("dataset.embedding_file="):
                 dataset_embedding_file = arg.replace("dataset.embedding_file=", "", 1)
+                if dataset_embedding_file.startswith("[") and dataset_embedding_file.endswith("]"):
+                    dataset_embedding_file = json.loads(dataset_embedding_file)
+                else:
+                    raise ValueError(f"Invalid format for dataset.embedding_file: {dataset_embedding_file}. It should be a JSON list (e.g., '[\"file1\", \"file2\"]') or a single string (e.g., 'file1').")
                 test_args.append(arg)
                 break
 
@@ -103,11 +115,20 @@ def main():
     if others_args:
         for arg in others_args:
             if arg.startswith("family="):
-                specified_family = arg.replace("family=", "", 1)
-                if specified_family in family:
-                    family = [specified_family]
+                specified_family_list = arg.replace("family=", "", 1)
+                if specified_family_list.startswith("[") and specified_family_list.endswith("]"):
+                    specified_family_list = json.loads(specified_family_list)
                 else:
-                    raise ValueError(f"Specified family '{specified_family}' is not in the dataset. Available families: {family}")
+                    raise ValueError(f"Invalid format for family: {specified_family_list}. It should be a JSON list (e.g., '[\"family1\", \"family2\"]') or a single string (e.g., 'family1').")
+                
+                # 指定されたfamilyがデータセットに存在するか確認する
+                for specified_family in specified_family_list:
+                    if not specified_family in family:
+                        raise ValueError(f"Specified family '{specified_family}' is not in the dataset. Available families: {family}")
+                
+                family = specified_family_list
+                print(f"Using specified family/families: {family}")
+                break
 
     for fam in family:
         train = df.loc[splits[(splits.fold == fam) & (splits.partition != "test")].index]
@@ -140,14 +161,11 @@ def main():
     if pretrain_framework is not None and pretrain_timestamp is not None and dataset_embedding_file is not None:
         test_results_dir_path /= "combined_representation"
     elif pretrain_framework is not None and pretrain_timestamp is not None:
-        pretrain_framework = json.loads(pretrain_framework) if pretrain_framework.startswith("[") else [pretrain_framework]
-        pretrain_timestamp = json.loads(pretrain_timestamp) if pretrain_timestamp.startswith("[") else [pretrain_timestamp]
         if len(pretrain_framework) == 1 and len(pretrain_timestamp) == 1:
             test_results_dir_path /= pretrain_framework[0] / pretrain_timestamp[0]
         else:
             test_results_dir_path /= "combined_representation"
     elif dataset_embedding_file is not None:
-        dataset_embedding_file = json.loads(dataset_embedding_file) if dataset_embedding_file.startswith("[") else [dataset_embedding_file]
         if len(dataset_embedding_file) == 1:
             test_results_dir_path /= Path(dataset_embedding_file[0]).stem
         else:            
