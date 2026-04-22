@@ -23,7 +23,7 @@ common:
 pretrain:
   framework: null
   timestamp: null
-  checkpoint: final
+  checkpoint: ["final"]
 
 path:
   data_dir: ./data/SS_data/

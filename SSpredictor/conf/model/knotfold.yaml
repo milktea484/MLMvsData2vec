@@ -1,3 +1,6 @@
+defaults:
+  - knotfold_schema
+
 _target_: models.KnotFoldModel
 name: knotfold
 lr: 1e-4

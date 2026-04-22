@@ -1,3 +1,6 @@
+defaults:
+  - adamw_schema
+
 _target_: torch.optim.AdamW
 lr: ${model.lr}
 weight_decay: ${model.weight_decay}
