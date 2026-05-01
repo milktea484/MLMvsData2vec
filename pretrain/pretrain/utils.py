@@ -2,13 +2,8 @@ import torch
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
 
-from .conf.config import (
-    AdamWConfig,
-    CosineSchedulerConfig,
-    MainConfig,
-    MLMConfig,
-    data2vecConfig,
-)
+from .conf.config import (AdamWConfig, CosineSchedulerConfig, MainConfig,
+                          MLMConfig, SwitchConfig, data2vecConfig)
 
 
 def masking(
@@ -156,6 +151,7 @@ def setup_config():
         
         cs.store(group="framework", name="mlm_schema", node=MLMConfig)
         cs.store(group="framework", name="data2vec_schema", node=data2vecConfig)
+        cs.store(group="framework", name="switch_schema", node=SwitchConfig)
         
         cs.store(group="optimizer", name="adamw_schema", node=AdamWConfig)
         

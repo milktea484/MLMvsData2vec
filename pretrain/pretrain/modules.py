@@ -408,7 +408,8 @@ class EMAModule():
         skip_keys: student modelのparameterのうち, 追跡をしない部分 (基本はNone)
     """
     def __init__(
-        self, model: CommonModule,
+        self,
+        model: CommonModule,
         ema_decay: float = 0.9999,
         device=None,
         skip_keys: list[str] | None = None,
