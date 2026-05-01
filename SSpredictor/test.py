@@ -13,9 +13,9 @@ from conf.test_config import MainConfig
 from dataset import create_dataloader
 from metrics import calculate_auc, calculate_confusion_matrix
 from models import KnotFoldModel
-from omegaconf import ListConfig, OmegaConf
+from omegaconf import OmegaConf
 from tqdm import tqdm
-from utils import (get_embedding_dim, setup_test_config, visualize_auc,
+from utils import (get_embedding_dim, load_past_SSpredictor_cfg, setup_test_config, visualize_auc,
                    visualize_probability_matrix)
 
 from pretrain.conf.config import MainConfig as PretrainMainConfig
@@ -84,8 +84,7 @@ def main(cfg: MainConfig):
     if not train_cfg_path.exists():
         raise FileNotFoundError(f"Train config path {train_cfg_path} does not exist.")
     
-    structured_train_cfg = OmegaConf.merge(OmegaConf.structured(TrainMainConfig), OmegaConf.load(train_cfg_path))
-    train_cfg: TrainMainConfig = OmegaConf.to_object(structured_train_cfg)
+    train_cfg = load_past_SSpredictor_cfg(train_cfg_path)
     
     # 設定の上書き
     ## test_file
