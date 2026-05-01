@@ -1,3 +1,4 @@
+import copy
 import math
 from pathlib import Path
 from typing import Any
@@ -723,3 +724,214 @@ class data2vecModel(BaseModel):
         torch.save(self.state_dict(), save_path / f"weight_{step}.pth")
         torch.save(self.ema.model.state_dict(), save_path / f"teacher_weight_{step}.pth")
 
+
+class SwitchModel(BaseModel):
+    """
+    学習中にMLMとdata2vecのフレームワークを切り替えられるモデル  
+    これのoptimizerはAdamWでいいのか？不必要なパラメータの更新が発生しないか？
+    Args:
+        arch (dict[str, Any]): モデルアーキテクチャの設定情報
+        ema_decay (float): EMAの減衰率
+        ema_end_decay (float): EMAの最終減衰率
+        ema_anneal_end_steps (int): EMAの減衰率を最終値に到達させるステップ数
+        loss_beta (float): SmoothL1Lossのbeta値
+        quantize_cfg (QuantizeConfig): 量子化に関する設定情報
+        padding_idx (int): パディングトークンのインデックス
+        num_tokens (int): トークンの総数
+        experiment_cfg (ExperimentConfig): 実験に関する設定情報
+        switch_step (int): フレームワークを切り替えるステップ数
+        initial_framework (str): "mlm"または"data2vec"のいずれかで, 学習開始時のフレームワーク
+        device: 使用デバイス
+    """
+    def __init__(
+        self,
+        arch: dict[str, Any],
+        ema_decay: float,
+        ema_end_decay: float,
+        ema_anneal_end_steps: int,
+        loss_beta: float,
+        quantize_cfg: QuantizeConfig,
+        mlm_loss_cfg: MLMLossConfig,
+        padding_idx: int,
+        num_tokens: int,
+        experiment_cfg: ExperimentConfig,
+        switch_step: int,
+        initial_framework: str,
+        device,
+        **framework_kwargs
+    ):
+        super().__init__(padding_idx=padding_idx, num_tokens=num_tokens, device=device)
+        
+        if initial_framework not in ["mlm", "data2vec"]:
+            raise ValueError(f"Unsupported initial framework: {initial_framework}")
+        
+        # モデルの構築
+        self.mlm_model = MLMModel(
+            arch=arch,
+            padding_idx=padding_idx,
+            num_tokens=num_tokens,
+            experiment_cfg=experiment_cfg,
+            device=device,
+        )
+        
+        self.data2vec_model = data2vecModel(
+            arch=arch,
+            ema_decay=ema_decay,
+            ema_end_decay=ema_end_decay,
+            ema_anneal_end_steps=ema_anneal_end_steps,
+            loss_beta=loss_beta,
+            quantize_cfg=quantize_cfg,
+            mlm_loss_cfg=mlm_loss_cfg,
+            padding_idx=padding_idx,
+            num_tokens=num_tokens,
+            experiment_cfg=experiment_cfg,
+            device=device,
+        )
+        
+        # modelの参照渡しでcurrent_modelを設定
+        self.current_model = self.mlm_model if initial_framework == "mlm" else self.data2vec_model
+        
+        # フレームワークを切り替えるステップ数と現在のステップ数の初期化
+        self.switch_step = switch_step
+        self.current_step = 0
+        
+        # 現在のフレームワークを保持
+        self.current_framework = initial_framework
+        
+        # その他に関する設定
+        self.device = device
+        self.to(self.device)
+    
+    def _train(self, batch):
+        """
+        訓練用
+        Args:
+            batch: バッチデータ
+        Returns:
+            loss: torch.Tensor
+        """
+        return self.current_model._train(batch)
+    
+    def _validate(self, batch):
+        """
+        検証用
+        Args:
+            batch: バッチデータ
+        Returns:
+            dict: current_modelの_validateの返り値
+        """
+        return self.current_model._validate(batch)
+    
+    def _test(self, batch):
+        """
+        テスト用
+        Args:
+            batch: バッチデータ
+        Returns:
+            dict: current_modelの_testの返り値
+        """
+        return self.current_model._test(batch)
+    
+    def translate_state_dict(self, state_dict: dict) -> dict:
+        """
+        モデルの切り替えに伴うstate_dictの変換
+        
+        Args:
+            state_dict (dict): 変換前のstate_dict
+        Returns:
+            dict: 変換後のstate_dict
+        """
+        if self.current_framework == "mlm":
+            # mlm -> data2vecの変換
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith("model."):
+                    new_k = k.replace("model.", "student_model.")
+                    new_state_dict[new_k] = v
+                # data2vecではclassifierがないため, load_state_dictでstrict=Falseにしておけば無視される
+            return new_state_dict
+        
+        else:
+            # data2vec -> mlmの変換
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith("student_model."):
+                    new_k = k.replace("student_model.", "model.")
+                    new_state_dict[new_k] = v
+                # mlmではregression_headがないため, load_state_dictでstrict=Falseにしておけば無視される
+            return new_state_dict
+    
+    def set_current_step(self):
+        """
+        EMAのステップ数の初期化および更新メソッド. 円滑にフレームワークを切り替えるために, current_modelにかかわらずEMA decayの更新は行う.
+        current_modelがdata2vecの時のみEMAの重み更新を行う
+        """
+        
+        # モデルがtrainingモードのときのみ更新
+        if self.training:
+            if self.current_framework == "mlm":
+                # warmup中はema_decayを線形増加させ, それ以降はema_end_decayに固定
+                if self.data2vec_model.ema_decay != self.data2vec_model.ema_end_decay:
+                    if self.data2vec_model.num_updates >= self.data2vec_model.ema_anneal_end_steps:
+                        decay = self.data2vec_model.ema_end_decay
+                    else:
+                        # 線形に増加させる
+                        r = self.data2vec_model.ema_end_decay - self.data2vec_model.ema_decay
+                        pct_remaining = 1 - self.data2vec_model.num_updates / self.data2vec_model.ema_anneal_end_steps
+                        decay = self.data2vec_model.ema_end_decay - r * pct_remaining
+                    self.data2vec_model.ema.set_decay(decay)
+        
+            # ステップ数の更新
+            self.current_step += 1
+            if self.current_framework == "mlm":
+                self.data2vec_model.num_updates += 1
+            assert self.data2vec_model.num_updates == self.current_step, "num_updates and current_step should be the same"
+
+    def _step(self):
+        """
+        学習ステップの更新とフレームワークの切り替え
+        """
+        self.current_model._step()
+        
+        # ステップ数の更新. data2vec用にEMA decayの更新はcurrent_modelにかかわらず行う
+        self.set_current_step()
+        
+        # switch_stepに達したらフレームワークを切り替える
+        if self.current_step == self.switch_step:
+            
+            # 重みを引き継いで新しいモデルを構築
+            if self.current_framework == "mlm":
+                new_framework = "data2vec"
+                
+                # mlmのstate_dictをdata2vecの形式に変換してからロード
+                translated_state_dict = self.translate_state_dict(self.mlm_model.state_dict())
+                self.data2vec_model.load_state_dict(translated_state_dict, strict=False)
+                
+                self.data2vec_model.ema.model = copy.deepcopy(self.data2vec_model.student_model)
+                self.data2vec_model.ema.model.requires_grad_(False)
+                self.data2vec_model.ema.model.to(self.device)
+                
+                self.current_model = self.data2vec_model
+                
+            else:
+                new_framework = "mlm"
+                
+                # data2vecのstate_dictをmlmの形式に変換してからロード
+                translated_state_dict = self.translate_state_dict(self.data2vec_model.state_dict())
+                self.mlm_model.load_state_dict(translated_state_dict, strict=False) # data2vecのEMAモデルはmlmには存在しないのでロードしない
+
+                self.current_model = self.mlm_model
+            
+            self.current_framework = new_framework
+
+    def save_model(self, save_path: Path, step: int):
+        """
+        モデルの保存
+        
+        Args:
+            save_path (Path): 保存先ディレクトリ
+            step (int): 現在のステップ数
+        """
+        # 保存されるモデルの名前に現在のフレームワークを付加
+        checkpoint_name = f"weight_{step}_{self.current_framework}.pth"
+        torch.save(self.current_model.state_dict(), save_path / checkpoint_name)

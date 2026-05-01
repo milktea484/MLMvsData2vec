@@ -1,0 +1,36 @@
+defaults:
+  - switch_schema
+
+_target_: pretrain.models.SwitchModel
+name: switch
+wandb_tags: ["switch"]
+lr: 0.0002
+weight_decay: 0.01
+sptoken_prob: 0.15
+mask_prob: 0.8
+ernie_rna_alpha: 0.8
+ema_decay: 0.999
+ema_end_decay: 0.9999
+ema_anneal_end_steps: ${div:${common.max_steps}, 5}
+loss_beta: 4.0
+switch_step: ${div:${common.max_steps}, 2}
+initial_framework: mlm
+
+quantize_cfg:
+  use_quantize: false
+  codebook_dim: 16
+  n_codebooks: 10
+
+mlm_loss_cfg:
+  use_mlm_loss: false
+  mlm_loss_weight: 0.2
+
+arch:
+  embed_dim: ${model_size.embed_dim}
+  ffn_dim: ${model_size.ffn_dim}
+  n_layers: ${model_size.n_layers}
+  n_heads: ${model_size.n_heads}
+  attention_dropout: ${model_size.attention_dropout}
+  rope_max_length: ${dataset.max_length}
+  k_layers: ${model_size.k_layers}
+  n_head_layers: ${model_size.n_head_layers}

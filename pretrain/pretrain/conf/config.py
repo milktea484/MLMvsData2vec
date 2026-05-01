@@ -33,8 +33,8 @@ class FrameworkConfig:
     arch: ArchitectureConfig = MISSING
     
     def __post_init__(self):
-        if self.name not in ["mlm", "data2vec"]:
-            raise ValueError("framework.name must be either 'mlm' or 'data2vec'.")
+        if self.name not in ["mlm", "data2vec", "switch"]:
+            raise ValueError("framework.name must be either 'mlm', 'data2vec', or 'switch'.")
 
 # MLM用のframework設定クラス
 @dataclass
@@ -65,6 +65,24 @@ class data2vecConfig(FrameworkConfig):
     ema_end_decay: float = MISSING
     ema_anneal_end_steps: int = MISSING
     loss_beta: float = MISSING
+    
+    quantize_cfg: QuantizeConfig = MISSING
+    mlm_loss_cfg: MLMLossConfig = MISSING
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.arch.k_layers is None or self.arch.n_head_layers is None:
+            raise ValueError("k_layers and n_head_layers must be specified for data2vec framework.")
+
+# frameworkのswitch設定クラス
+@dataclass
+class SwitchConfig(FrameworkConfig):
+    ema_decay: float = MISSING
+    ema_end_decay: float = MISSING
+    ema_anneal_end_steps: int = MISSING
+    loss_beta: float = MISSING
+    switch_step: int = MISSING
+    initial_framework: str = MISSING
     
     quantize_cfg: QuantizeConfig = MISSING
     mlm_loss_cfg: MLMLossConfig = MISSING

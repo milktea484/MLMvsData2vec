@@ -30,14 +30,6 @@ def main(cfg: MainConfig):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # logの設定
-    logging.basicConfig(
-        level=logging.INFO,  # Set the minimum log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        format="%(asctime)s - %(name)s.%(lineno)d - %(levelname)s - %(message)s",
-        handlers=[
-            logging.StreamHandler(),  # Log to console
-            logging.FileHandler(output_dir / "log_train.txt", mode="w"),
-        ],
-    )
     logger = logging.getLogger(__name__)
     
     # warningsの設定 (UserWarningを無視)
