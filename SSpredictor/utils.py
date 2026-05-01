@@ -247,3 +247,26 @@ def setup_test_config():
         cs.store(name="test_config_schema", node=TestMainConfig)
         
         setup_test_config.is_registered = True
+
+def load_past_SSpredictor_cfg(train_cfg_path: str) -> MainConfig:
+    """
+    以前のSSpredictorのconfig.yamlを読み込む関数. 型情報が失われている部分(defaultsの部分)を手動で補正する.
+    Args:
+        train_cfg_path (str): 読み込むconfig.yamlのパス
+    Returns:
+        config.MainConfig: 読み込んだ設定オブジェクト
+    """
+    raw_cfg = OmegaConf.load(train_cfg_path)
+
+    # 保存されている名前を見て、型を特定する
+    if raw_cfg.model.name == "knotfold":
+        # model部分だけ、KnotFoldConfig の型情報と合体させる
+        model_schema = OmegaConf.structured(KnotFoldConfig)
+        raw_cfg.model = OmegaConf.merge(model_schema, raw_cfg.model)
+
+    structured_train_cfg = OmegaConf.merge(OmegaConf.structured(MainConfig), raw_cfg)
+    
+    # 4. 最後に魔法をかける！
+    train_cfg: MainConfig = OmegaConf.to_object(structured_train_cfg)
+    
+    return train_cfg
