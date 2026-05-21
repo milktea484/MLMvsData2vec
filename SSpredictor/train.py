@@ -151,7 +151,19 @@ def main(cfg: MainConfig):
                 checkpoint = pretrain_cfg.common.max_steps
 
             pretrain_weight = f"weight_{checkpoint}.pth" if not main_cfg.experiment.use_teacher else f"teacher_weight_{checkpoint}.pth"
-            pretrain_model._load_state_dict(torch.load(pretrain_model_path / pretrain_weight, map_location=device))
+            pretrain_model._load_state_dict(
+                torch.load(pretrain_model_path / pretrain_weight, map_location=device),
+                strict=(pretrain_cfg.framework.name != "switch")
+            )
+            
+            # switch frameworkを使用している場合の前処理
+            if pretrain_cfg.framework.name == "switch":
+                if pretrain_cfg.framework.initial_framework == "mlm":
+                    pretrain_model.current_framework = "data2vec"
+                    pretrain_model.current_model = pretrain_model.data2vec_model
+                elif pretrain_cfg.framework.initial_framework == "data2vec":
+                    pretrain_model.current_framework = "mlm"
+                    pretrain_model.current_model = pretrain_model.mlm_model
 
             # 事前学習モデルの情報を保存
             pretrain_model_infos.append({

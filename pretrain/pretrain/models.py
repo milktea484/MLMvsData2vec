@@ -44,16 +44,21 @@ class BaseModel(nn.Module):
     def save_model(self, save_path: Path, step: int):
         raise NotImplementedError("save_model method not implemented.")
             
-    def _load_state_dict(self, state_dict: dict):
+    def _load_state_dict(self, state_dict: dict, strict: bool = True):
         """
         torch.compileを考慮したload_state_dictの実装
         
         Args:
             state_dict (dict): ロードするstate_dict
+            strict (bool): strict modeかどうか
+            
+        Returns:
+            self: モデル自身
         """
         
         return self.load_state_dict(
-            {k.removeprefix("_orig_mod."): v for k, v in state_dict.items()}
+            {k.removeprefix("_orig_mod."): v for k, v in state_dict.items()},
+            strict=strict
         )
 
 
