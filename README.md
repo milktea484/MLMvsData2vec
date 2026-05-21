@@ -47,6 +47,9 @@ mystudy/
         - optimizer/ : オプティマイザーのパラメータ設定
             - adamw.yaml : AdamW
 
+- RBPpredictor/ : RNA-タンパク質結合予測．  
+    - PrismNet/ : PrismNetに少し手を加えたモデル．  
+
 - scripts/ : pretrainやpredictorの実行．
     - pretrain.py : 事前学習モデルの訓練，特徴表現の抽出，あるいはその両方を一括で実行．
     - archiveii_kfold.py :  
