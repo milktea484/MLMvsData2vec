@@ -43,6 +43,15 @@ class BaseModel(nn.Module):
     
     def save_model(self, save_path: Path, step: int):
         raise NotImplementedError("save_model method not implemented.")
+    
+    def set_extract_repr_layers(self, layers: list[int] | int | str):
+        """
+        抽出する表現のレイヤ番号を設定
+        
+        Args:
+            layers (list[int] | int | str): 抽出するレイヤ番号のリスト, 単体のレイヤ番号, または"all"
+        """
+        raise NotImplementedError("set_extract_repr_layers method not implemented.")
             
     def _load_state_dict(self, state_dict: dict, strict: bool = True):
         """
@@ -94,8 +103,22 @@ class MLMModel(BaseModel):
         self.classifier = nn.Linear(arch["embed_dim"], self.num_tokens)
         
         # その他に関する設定
-        self.extract_repr_layers= experiment_cfg.extract_repr_layers
+        self.extract_repr_layers = self.set_extract_repr_layers(experiment_cfg.extract_repr_layers)
         self.to(self.device)
+    
+    def set_extract_repr_layers(self, layers: list[int] | int | str):
+        """
+        抽出する表現のレイヤ番号を設定
+        
+        Args:
+            layers (list[int] | int | str): 抽出するレイヤ番号のリスト, 単体のレイヤ番号, または"all"
+        """
+        if isinstance(layers, int):
+            layers = [layers]
+        elif isinstance(layers, str) and layers == "all":
+            layers = list(range(self.n_layers+1))
+        
+        self.extract_repr_layers = layers
         
     def loss_func(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
@@ -163,10 +186,12 @@ class MLMModel(BaseModel):
         x = [x_and_attn[0] for x_and_attn in hidden_reprs][-1]  # (B, L, embed_dim)
         x = F.layer_norm(x, (x.shape[-1],))
         
-        # testの場合はextract_repr_layers層の配列特徴と, 全レイヤのアテンションを取得
+        # testの場合はself.extract_repr_layers層の配列特徴と, 全レイヤのアテンションを取得
         if mode == "test":
-            repr_output = hidden_reprs[self.extract_repr_layers][0]  # (B, L, embed_dim)
+            repr_output_list = [hidden_reprs[i][0] for i in self.extract_repr_layers]  # (len(self.extract_repr_layers), tensor((B, L, embed_dim)))
+            repr_output = torch.stack(repr_output_list, dim=0).squeeze(0)  # (len(self.extract_repr_layers), B, L, embed_dim) or (B, L, embed_dim) if len(self.extract_repr_layers) == 1
             repr_output = F.layer_norm(repr_output, (repr_output.shape[-1],))
+            
             attn_output = [x_and_attn[1] for x_and_attn in hidden_reprs[1:]] # 最初の層はアテンションを持たない
             attn_output = torch.cat(attn_output, dim=1)  # (B, n_layers*n_heads, L, L)
             
@@ -268,16 +293,20 @@ class MLMModel(BaseModel):
         
         return results
     
-    def _test(self, batch):
+    def _test(self, batch, extract_repr_layers=None):
         """
         テスト用
         Args:
             batch: バッチデータ
+            extract_repr_layers: 抽出する表現の層番号のリスト. Noneの場合はコンストラクタで指定されたextract_repr_layersを使用. "all"の場合は全レイヤの表現を抽出
         Returns:
             dict:
                 - repr: torch.Tensor (B, L, embed_dim)
                 - attn: torch.Tensor (B, n_layers*n_heads, L, L)
         """
+        if extract_repr_layers is not None:
+            self.set_extract_repr_layers(extract_repr_layers)
+
         token_input = batch["token_seqs"].to(self.device)
         attn_mask = batch["attn_mask"].to(self.device)
         
@@ -403,9 +432,23 @@ class data2vecModel(BaseModel):
             )
             
         # その他に関する設定
-        self.extract_repr_layers= experiment_cfg.extract_repr_layers
+        self.extract_repr_layers= self.set_extract_repr_layers(experiment_cfg.extract_repr_layers)
         self.to(self.device)
+    
+    def set_extract_repr_layers(self, layers: list[int] | int | str):
+        """
+        抽出する表現のレイヤ番号を設定
         
+        Args:
+            layers (list[int] | int | str): 抽出するレイヤ番号のリスト, 単体のレイヤ番号, または"all"
+        """
+        if isinstance(layers, int):
+            layers = [layers]
+        elif isinstance(layers, str) and layers == "all":
+            layers = list(range(self.n_layers+1))
+        
+        self.extract_repr_layers = layers
+    
     def loss_func(self, logits: torch.Tensor, target: torch.Tensor, logits_mlm: torch.Tensor=None, target_mlm: torch.Tensor=None) -> torch.Tensor:
         """
         損失関数の計算
@@ -503,10 +546,12 @@ class data2vecModel(BaseModel):
         x = [x_and_attn[0] for x_and_attn in hidden_reprs][-1]  # (B, L, embed_dim)
         x = F.layer_norm(x, (x.shape[-1],))
         
-        # testの場合はextract_repr_layers層の配列特徴と, 全レイヤのアテンションを取得
+        # testの場合はself.extract_repr_layers層の配列特徴と, 全レイヤのアテンションを取得
         if mode == "test":
-            repr_output = hidden_reprs[self.extract_repr_layers][0]  # (B, L, embed_dim)
-            repr_output = F.layer_norm(repr_output, (repr_output.shape[-1],))
+            repr_output_list = [hidden_reprs[i][0] for i in self.extract_repr_layers]  # (len(self.extract_repr_layers), B, L, embed_dim)
+            repr_output = torch.stack(repr_output_list, dim=0)  # (len(self.extract_repr_layers), B, L, embed_dim) or (B, L, embed_dim) if len(self.extract_repr_layers) == 1
+            repr_output = F.layer_norm(torch.stack(repr_output, dim=0), (repr_output[0].shape[-1],))
+            
             attn_output = [x_and_attn[1] for x_and_attn in hidden_reprs[1:]] # 最初の層はアテンションを持たない
             attn_output = torch.cat(attn_output, dim=1)  # (B, n_layers*n_heads, L, L)
         
@@ -660,11 +705,12 @@ class data2vecModel(BaseModel):
         
         return results
     
-    def _test(self, batch):
+    def _test(self, batch, extract_repr_layers=None):
         """
         テスト用
         Args:
             batch: バッチデータ
+            extract_repr_layers: 抽出する表現の層番号のリスト. Noneの場合はコンストラクタで指定されたextract_repr_layersを使用. "all"の場合は全レイヤの表現を抽出
         Returns:
             dict:
                 - repr: torch.Tensor (B, L, embed_dim)
@@ -672,6 +718,9 @@ class data2vecModel(BaseModel):
                 - teacher_repr: torch.Tensor (B, L, embed_dim)
                 - teacher_attn: torch.Tensor (B, n_layers*n_heads, L, L)
         """
+        if extract_repr_layers is not None:
+            self.set_extract_repr_layers(extract_repr_layers)
+        
         student_input = batch["token_seqs"].to(self.device)
         attn_mask = batch["attn_mask"].to(self.device)
         
