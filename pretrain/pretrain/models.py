@@ -103,7 +103,7 @@ class MLMModel(BaseModel):
         self.classifier = nn.Linear(arch["embed_dim"], self.num_tokens)
         
         # その他に関する設定
-        self.extract_repr_layers = self.set_extract_repr_layers(experiment_cfg.extract_repr_layers)
+        self.set_extract_repr_layers(experiment_cfg.extract_repr_layers)
         self.to(self.device)
     
     def set_extract_repr_layers(self, layers: list[int] | int | str):
@@ -432,7 +432,7 @@ class data2vecModel(BaseModel):
             )
             
         # その他に関する設定
-        self.extract_repr_layers= self.set_extract_repr_layers(experiment_cfg.extract_repr_layers)
+        self.set_extract_repr_layers(experiment_cfg.extract_repr_layers)
         self.to(self.device)
     
     def set_extract_repr_layers(self, layers: list[int] | int | str):
@@ -550,7 +550,7 @@ class data2vecModel(BaseModel):
         if mode == "test":
             repr_output_list = [hidden_reprs[i][0] for i in self.extract_repr_layers]  # (len(self.extract_repr_layers), B, L, embed_dim)
             repr_output = torch.stack(repr_output_list, dim=0)  # (len(self.extract_repr_layers), B, L, embed_dim) or (B, L, embed_dim) if len(self.extract_repr_layers) == 1
-            repr_output = F.layer_norm(torch.stack(repr_output, dim=0), (repr_output[0].shape[-1],))
+            repr_output = F.layer_norm(repr_output, (repr_output[0].shape[-1],))
             
             attn_output = [x_and_attn[1] for x_and_attn in hidden_reprs[1:]] # 最初の層はアテンションを持たない
             attn_output = torch.cat(attn_output, dim=1)  # (B, n_layers*n_heads, L, L)
@@ -583,7 +583,10 @@ class data2vecModel(BaseModel):
         
         # test時は損失計算を行わずに出力を返す
         if mode == "test":
-            teacher_repr = hidden_reprs[self.extract_repr_layers][0]  # (B, L, embed_dim)
+            teacher_repr_list = [hidden_reprs[i][0] for i in self.extract_repr_layers]  # (len(self.extract_repr_layers), B, L, embed_dim)
+            teacher_repr = torch.stack(teacher_repr_list, dim=0)  # (len(self.extract_repr_layers), B, L, embed_dim) or (B, L, embed_dim) if len(self.extract_repr_layers) == 1
+            teacher_repr = F.layer_norm(teacher_repr, (teacher_repr[0].shape[-1],))
+
             teacher_attn = [y_and_attn[1] for y_and_attn in hidden_reprs[1:]] # 最初の層はアテンションを持たない
             teacher_attn = torch.cat(teacher_attn, dim=1)  # (B, n_layers*n_heads, L, L)
             
