@@ -162,7 +162,7 @@ def main():
         test_results_dir_path /= "combined_representation"
     elif pretrain_framework is not None and pretrain_timestamp is not None:
         if len(pretrain_framework) == 1 and len(pretrain_timestamp) == 1:
-            test_results_dir_path /= pretrain_framework[0] / pretrain_timestamp[0]
+            test_results_dir_path /= Path(pretrain_framework[0]) / pretrain_timestamp[0]
         else:
             test_results_dir_path /= "combined_representation"
     elif dataset_embedding_file is not None:
