@@ -245,6 +245,7 @@ def create_dataloader(config: MainConfig, split: str):
             use_ernie_rna=config.experiment.use_ernie_rna,
             ernie_rna_alpha=config.framework.ernie_rna_alpha,
         )
+        gradient_accumulation_steps = config.model_size.gradient_accumulation_steps
     elif split == "validation":
         dataset = TrainingDataset(
             dataset_path=Path(config.path.data_dir) / config.dataset.validation_file,
@@ -256,6 +257,7 @@ def create_dataloader(config: MainConfig, split: str):
             use_ernie_rna=config.experiment.use_ernie_rna,
             ernie_rna_alpha=config.framework.ernie_rna_alpha,
         )
+        gradient_accumulation_steps = config.model_size.gradient_accumulation_steps
     else:
         dataset = TestDataset(
             dataset_path=Path(config.path.test_data_dir) / config.dataset.test_file,
@@ -263,13 +265,14 @@ def create_dataloader(config: MainConfig, split: str):
             other_tokens=config.dataset.other_tokens,
             use_additional_token=config.experiment.use_additional_token,
         )
+        gradient_accumulation_steps = config.model_size.gradient_accumulation_steps_for_test  # テスト時は勾配を蓄積しない
     
     g = torch.Generator()
     g.manual_seed(config.common.seed)
     
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=config.common.batch_size // config.model_size.gradient_accumulation_steps,
+        batch_size=config.common.batch_size // gradient_accumulation_steps,
         worker_init_fn=seed_worker,
         generator=g,
         shuffle=(split == "train"),
