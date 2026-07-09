@@ -124,7 +124,7 @@ def seq2token(
     
     token_seqs = []
     for seq in sequences:
-        token_seq = [mapping.get(nt) for nt in seq]
+        token_seq = [mapping.get(nt) for nt in seq.upper()]
         if use_additional_token:
             token_seq = [mapping["<cls>"]] + token_seq + [mapping["<eos>"]]
         
