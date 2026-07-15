@@ -1,0 +1,37 @@
+hydra:
+  job:
+    chdir: False  # これをFalseにすると、カレントディレクトリが移動しない
+  run:
+    dir: ./${path.output_dir}/ # ログの保存場所は確保
+
+defaults:
+  - base_config_schema
+  - _self_
+
+common:
+  seed: 42
+  use_gpu: true
+
+pretrain:
+  framework: ???
+  timestamp: ???
+  checkpoint: final
+
+path:
+  data_dir: ./data/SS_data/
+  pretrain_model_dir: ./results/pretrain_results/
+  output_dir: ./results/REDIAL_results/${pretrain.framework}/${pretrain.timestamp}/
+  timestamp: ${now:%Y%m%dT%H%M%S}
+
+dataset:
+  max_length: 512
+  rna_tokens: ["A", "C", "G", "U"]
+  sequence_file: ArchiveII.csv
+  train_file: train.csv
+  validation_file: test.csv
+  test_file: test.csv
+
+experiment:
+  use_teacher: false
+  return_attn: true
+  extract_repr_layers: null
