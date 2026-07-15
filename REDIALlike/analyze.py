@@ -129,6 +129,10 @@ def main(cfg: MainConfig):
 
                 # REDIALlikeによるcontact mapの生成
                 contact_map, attention_map = rediallike.generate_contact_map(batch, return_attn=main_cfg.experiment.return_attn)
+                
+                # contact mapの正規化
+                # attention mapに合わせて，softmaxを行う (attention mapはsoftmaxを通している)
+                contact_map = torch.softmax(contact_map, dim=-1)  # (len(extract_repr_layers), L, L)
 
                 contact_map = contact_map.detach().cpu().numpy()  # (len(extract_repr_layers), L, L)
                 attention_map = attention_map.detach().cpu().numpy() if attention_map is not None else None  # (n_layer*n_heads, L, L)

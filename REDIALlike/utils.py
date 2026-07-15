@@ -124,8 +124,11 @@ def assess_attention(attn, gt, n_heads=12, n_layers=12, designated_layer=None, s
     """
     if single_map:
         # attn shape: (L, L)
-        score = np.sum(attn * gt) / (np.sum(attn) + 1e-8)  # Avoid division by zero
-        return score, None
+        sum_attn = np.sum(attn)
+        if sum_attn == 0:
+            return 0.0, None
+        score = np.sum(attn * gt) / sum_attn
+        return score.astype(float), None
 
     else:
         max_score = 0.0
@@ -137,7 +140,10 @@ def assess_attention(attn, gt, n_heads=12, n_layers=12, designated_layer=None, s
         iteration_range = range(n_heads * n_layers) if designated_layer is None else range(n_heads)
         for idx in iteration_range:
             hl = idx if designated_layer is None else idx + start_idx
-            score = np.sum(attn[hl] * gt) / (np.sum(attn[hl]) + 1e-8)  # Avoid division by zero
+            sum_attn_hl = np.sum(attn[hl])
+            if sum_attn_hl == 0:
+                continue
+            score = np.sum(attn[hl] * gt) / sum_attn_hl
             if score > max_score:
                 max_score = score.astype(float)
                 max_hl = hl
