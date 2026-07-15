@@ -249,7 +249,7 @@ class MLMModel(BaseModel):
         masked_idxes = batch["masked_idxes"]
         
         attn_biases_masked = batch["attn_biases_masked"]
-        if isinstance(attn_biases_masked, torch.Tensor):
+        if attn_biases_masked is not None:
             attn_biases_masked = attn_biases_masked.to(self.device)
         
         loss = self(
@@ -279,7 +279,7 @@ class MLMModel(BaseModel):
         masked_idxes = batch["masked_idxes"]
         
         attn_biases_masked = batch["attn_biases_masked"]
-        if isinstance(attn_biases_masked, torch.Tensor):
+        if attn_biases_masked is not None:
             attn_biases_masked = attn_biases_masked.to(self.device)
         
         results = self(
@@ -309,10 +309,15 @@ class MLMModel(BaseModel):
 
         token_input = batch["token_seqs"].to(self.device)
         attn_mask = batch["attn_mask"].to(self.device)
+
+        attn_biases = batch["attn_biases"]
+        if attn_biases is not None:
+            attn_biases = attn_biases.to(self.device)
         
         results = self(
             token_input,
             attn_mask,
+            attn_biases_masked=attn_biases,
             target=None,
             masked_idxes=None,
             mode="test",
@@ -658,7 +663,7 @@ class data2vecModel(BaseModel):
         masked_idxes = batch["masked_idxes"]
         attn_biases = batch["attn_biases"]
         attn_biases_masked = batch["attn_biases_masked"]
-        if isinstance(attn_biases, torch.Tensor):
+        if attn_biases is not None:
             attn_biases = attn_biases.to(self.device)
             attn_biases_masked = attn_biases_masked.to(self.device)
         
@@ -692,7 +697,7 @@ class data2vecModel(BaseModel):
         
         attn_biases = batch["attn_biases"]
         attn_biases_masked = batch["attn_biases_masked"]
-        if isinstance(attn_biases, torch.Tensor):
+        if attn_biases is not None:
             attn_biases = attn_biases.to(self.device)
             attn_biases_masked = attn_biases_masked.to(self.device)
         
@@ -727,9 +732,17 @@ class data2vecModel(BaseModel):
         student_input = batch["token_seqs"].to(self.device)
         attn_mask = batch["attn_mask"].to(self.device)
         
+        attn_biases = batch["attn_biases"]
+        attn_biases_masked = batch["attn_biases_masked"]
+        if attn_biases is not None:
+            attn_biases = attn_biases.to(self.device)
+            attn_biases_masked = attn_biases_masked.to(self.device)
+
         results = self(
             student_input,
             attn_mask,
+            attn_biases=attn_biases,
+            attn_biases_masked=attn_biases_masked,
             teacher_input=None,
             masked_idxes=None,
             mode="test",

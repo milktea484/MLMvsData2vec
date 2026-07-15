@@ -79,7 +79,8 @@ class TrainingDataset(Dataset):
             mask_idx=self.tokens.index("<mask>"),
             rna_tokens=self.rna_tokens,
             sptoken_prob=self.sptoken_prob,
-            mask_prob=self.mask_prob
+            mask_prob=self.mask_prob,
+            use_additional_token=self.use_additional_token
         )
         
         # attentionバイアスの作成
@@ -154,6 +155,8 @@ class TestDataset(Dataset):
         tokens (list[str]): トークンのリスト
         other_tokens (list[str]): その他トークンのリスト
         use_additional_token (bool): CLS, EOSトークンを使用するかどうか
+        use_ernie_rna (bool): ERNIE-RNAの戦略を使用するかどうか
+        ernie_rna_alpha (float): ERNIE-RNAのalpha値
     """
     
     def __init__(
@@ -162,6 +165,8 @@ class TestDataset(Dataset):
         tokens: list[str] = ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"],
         other_tokens: list[str] = ["B", "D", "F", "I", "H", "K", "M", "S", "R", "W", "V", "Y", "X"],
         use_additional_token: bool = False,
+        use_ernie_rna: bool = False,
+        ernie_rna_alpha: float = 0.8,
     ):
         if dataset_path.suffix != ".csv":
             raise ValueError("TestDataset only supports .csv files.")
@@ -176,6 +181,20 @@ class TestDataset(Dataset):
             other_tokens=other_tokens,
             use_additional_token=use_additional_token,
         )
+
+        self.attn_biases = None
+        if use_ernie_rna:
+            self.attn_biases = []
+            for token_seq in self.token_seqs:
+                attn_bias, _ = create_attention_bias(
+                    token_seq,
+                    token_seq_masked=None,
+                    use_ernie_rna=use_ernie_rna,
+                    ernie_rna_alpha=ernie_rna_alpha,
+                    tokens=tokens,
+                )
+                self.attn_biases.append(attn_bias)
+
         self.tokens = tokens
         
     def __len__(self):
@@ -185,12 +204,14 @@ class TestDataset(Dataset):
         return {
             "seq_id": self.seq_ids[idx],
             "token_seq": self.token_seqs[idx],
+            "attn_bias": self.attn_biases[idx] if self.attn_biases is not None else None,
             "length": len(self.token_seqs[idx]),
         }
         
     def pad_batch(self, batch: list[dict]) -> dict:
         seq_ids = [b["seq_id"] for b in batch]
         token_seqs = [b["token_seq"] for b in batch]
+        attn_biases = [b["attn_bias"] for b in batch] if self.attn_biases is not None else None
         lengths = [b["length"] for b in batch]
         
         # バディング用にサイズを取得
@@ -199,19 +220,26 @@ class TestDataset(Dataset):
         
         # バッチ用のテンソルを初期化
         token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
-        
+
         # attentionマスクの初期化
         attn_mask = torch.full((batch_size, 1, max_length, max_length), fill_value=-1e6)
+        
+        # attentionバイアスの初期化
+        if self.attn_biases is not None:
+            attn_biases_padded = torch.zeros((batch_size, 1, max_length, max_length))
         
         # パディング
         for k in range(batch_size):
             token_seqs_padded[k, :lengths[k]] = token_seqs[k]
             attn_mask[k, :, :lengths[k], :lengths[k]] = 0
+            if self.attn_biases is not None:
+                attn_biases_padded[k, :, :lengths[k], :lengths[k]] = attn_biases[k]
             
         return {
             "seq_ids": seq_ids,
             "token_seqs": token_seqs_padded,
             "attn_mask": attn_mask,
+            "attn_biases": attn_biases_padded if self.attn_biases is not None else None,
             "lengths": lengths,
         }
     
@@ -264,6 +292,8 @@ def create_dataloader(config: MainConfig, split: str):
             tokens=config.dataset.tokens,
             other_tokens=config.dataset.other_tokens,
             use_additional_token=config.experiment.use_additional_token,
+            use_ernie_rna=config.experiment.use_ernie_rna,
+            ernie_rna_alpha=config.framework.ernie_rna_alpha,
         )
         gradient_accumulation_steps = config.model_size.gradient_accumulation_steps_for_test  # テスト時は勾配を蓄積しない
     

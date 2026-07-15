@@ -11,7 +11,8 @@ def masking(
     mask_idx: int,
     rna_tokens: list[str] = ["A", "C", "G", "U", "N"],
     sptoken_prob: float = 0.15,
-    mask_prob: float = 0.8
+    mask_prob: float = 0.8,
+    use_additional_token: bool = False
 ) -> tuple[torch.Tensor, list[int]]:
     """
     入力をマスクする関数．デフォルトなら以下の通り．
@@ -23,6 +24,7 @@ def masking(
         rna_tokens (list[str]): RNAトークンのリスト (default=["A", "C", "G", "U", "N"])
         sptoken_prob (float): マスク対象とする確率 (default=0.15)
         mask_prob (float): マスク対象のうち"<mask>"トークンに置換する確率 (default=0.8)
+        use_additional_token (bool): CLS, EOSトークンを使用するかどうか (default=False)
     Returns:
         tuple[torch.Tensor, list[int]]: マスクされたトークン配列とマスク対象のインデックスリスト
     """
@@ -35,6 +37,11 @@ def masking(
         sptoken_prob,
         device=masked_token_seq.device,
     )
+    # CLS, EOSトークンをマスク対象から除外する
+    if use_additional_token:
+        probability_matrix[0] = 0.0  # CLSトークン
+        probability_matrix[-1] = 0.0  # EOSトークン
+
     sptoken_idxes = torch.bernoulli(probability_matrix).bool() # ベルヌーイ試行（確率判定）
     sptoken_idxes = sptoken_idxes.nonzero(as_tuple=True)[0].tolist()
     
@@ -55,7 +62,7 @@ def masking(
 
 def create_attention_bias(
     token_seq: torch.Tensor,
-    token_seq_masked: torch.Tensor,
+    token_seq_masked: torch.Tensor = None,
     use_ernie_rna: bool = False,
     ernie_rna_alpha: float = 0.8,
     tokens: list[str] = ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"]
@@ -94,11 +101,12 @@ def create_attention_bias(
     attention_bias += ((seq_row == U) & (seq_col == G)) * ernie_rna_alpha
 
     # <mask> の行・列を-1.0に設定
-    mask_positions = (token_seq_masked == MASK).nonzero(as_tuple=True)[0]
     attention_bias_masked = attention_bias.clone().detach()
-    if mask_positions.numel() > 0:
-        attention_bias_masked[mask_positions, :] = -1.0
-        attention_bias_masked[:, mask_positions] = -1.0
+    if token_seq_masked is not None:
+        mask_positions = (token_seq_masked == MASK).nonzero(as_tuple=True)[0]
+        if mask_positions.numel() > 0:
+            attention_bias_masked[mask_positions, :] = -1.0
+            attention_bias_masked[:, mask_positions] = -1.0
     
     return attention_bias, attention_bias_masked
     
