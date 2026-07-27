@@ -733,16 +733,14 @@ class data2vecModel(BaseModel):
         attn_mask = batch["attn_mask"].to(self.device)
         
         attn_biases = batch["attn_biases"]
-        attn_biases_masked = batch["attn_biases_masked"]
         if attn_biases is not None:
             attn_biases = attn_biases.to(self.device)
-            attn_biases_masked = attn_biases_masked.to(self.device)
 
         results = self(
             student_input,
             attn_mask,
             attn_biases=attn_biases,
-            attn_biases_masked=attn_biases_masked,
+            attn_biases_masked=attn_biases,
             teacher_input=None,
             masked_idxes=None,
             mode="test",

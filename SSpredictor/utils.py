@@ -31,7 +31,7 @@ def seq2token(
     
     token_seqs = []
     for seq in sequences:
-        token_seq = [mapping.get(nt) for nt in seq]
+        token_seq = [mapping.get(nt) for nt in seq.upper()]
         if use_additional_token:
             token_seq = [mapping["<cls>"]] + token_seq + [mapping["<eos>"]]
         
@@ -40,6 +40,56 @@ def seq2token(
         token_seqs.append(torch.tensor(token_seq, dtype=torch.uint8))
         
     return token_seqs
+
+def create_attention_bias(
+    token_seq: torch.Tensor,
+    token_seq_masked: torch.Tensor = None,
+    use_ernie_rna: bool = False,
+    ernie_rna_alpha: float = 0.8,
+    tokens: list[str] = ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"]
+) -> tuple[torch.Tensor, torch.Tensor] | tuple[None, None]:
+    """
+    事前学習モデル用にAttentionマスクを作成する関数. use_ernie_rnaがTrueの場合, ernie_rna_alphaを使用する.
+    
+    Args:
+        token_seq (torch.Tensor): 元のトークン配列 (1次元テンソル)
+        token_seq_masked (torch.Tensor): マスクされたトークン配列 (1次元テンソル)
+        use_ernie_rna (bool): ERNIE-RNAの戦略を使用するかどうか (default=False)
+        ernie_rna_alpha (float): ERNIE-RNAのalpha値 (default=0.8)
+        tokens (list[str]): トークンのリスト
+    Returns:
+        tuple[torch.Tensor, torch.Tensor] | tuple[None, None]: attentionバイアスとマスクされた配列のattentionバイアス  
+        ernie_rnaを使わない場合, (None, None)を返す
+    """
+    if not use_ernie_rna:
+        return None, None
+    
+    L = token_seq.shape[0]
+    seq_row = token_seq.view(L, 1)  # (L, 1)
+    seq_col = token_seq.view(1, L)  # (1, L)
+    
+    attention_bias = torch.zeros((L, L), device=token_seq.device)
+    
+    A, C, G, U, MASK = [
+        tokens.index(x) for x in ["A", "C", "G", "U", "<mask>"]
+    ]
+
+    attention_bias += ((seq_row == A) & (seq_col == U)) * 2.0
+    attention_bias += ((seq_row == U) & (seq_col == A)) * 2.0
+    attention_bias += ((seq_row == C) & (seq_col == G)) * 3.0
+    attention_bias += ((seq_row == G) & (seq_col == C)) * 3.0
+    attention_bias += ((seq_row == G) & (seq_col == U)) * ernie_rna_alpha
+    attention_bias += ((seq_row == U) & (seq_col == G)) * ernie_rna_alpha
+
+    # <mask> の行・列を-1.0に設定
+    attention_bias_masked = attention_bias.clone().detach()
+    if token_seq_masked is not None:
+        mask_positions = (token_seq_masked == MASK).nonzero(as_tuple=True)[0]
+        if mask_positions.numel() > 0:
+            attention_bias_masked[mask_positions, :] = -1.0
+            attention_bias_masked[:, mask_positions] = -1.0
+    
+    return attention_bias, attention_bias_masked
 
 def bp2matrix(L, base_pairs) -> torch.Tensor:
     """
@@ -266,7 +316,6 @@ def load_past_SSpredictor_cfg(train_cfg_path: str) -> MainConfig:
 
     structured_train_cfg = OmegaConf.merge(OmegaConf.structured(MainConfig), raw_cfg)
     
-    # 4. 最後に魔法をかける！
     train_cfg: MainConfig = OmegaConf.to_object(structured_train_cfg)
     
     return train_cfg

@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 from conf.config import MainConfig
 from torch.utils.data import Dataset
-from utils import bp2matrix, seq2token
+from utils import bp2matrix, seq2token, create_attention_bias
 
 from pretrain.conf.config import MainConfig as PretrainMainConfig
 
@@ -21,6 +21,8 @@ class EmbeddingDataset(Dataset):
         tokens (list[str]): トークンのリスト
         other_tokens (list[str]): その他トークンのリスト
         use_additional_token (bool): CLS, EOSトークンを使用するかどうか
+        use_ernie_rna (bool): ERNIE-RNA戦略を使用するかどうか
+        ernie_rna_alpha (float): ERNIE-RNA戦略のalpha値
         use_attention (bool): 使用する特徴表現をattentionにするかどうか. falseなら配列特徴量になる
         embedding_paths (list[Path]): すでにh5形式で保存されている配列特徴量のファイルパス. 事前学習モデルの出力を使用する場合に必要. 単体, 複数どちらの場合もlistとして渡される.
         reference_embedding_dim (int | None): 参照埋め込みの次元. これが指定されている場合, データセットは参照埋め込みを返すようになる.
@@ -33,6 +35,8 @@ class EmbeddingDataset(Dataset):
         tokens: list[str] = ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"],
         other_tokens: list[str] = ["B", "D", "F", "I", "H", "K", "M", "S", "R", "W", "V", "Y", "X"],
         use_additional_token: bool = False,
+        use_ernie_rna: bool = False,
+        ernie_rna_alpha: float = 0.8,
         use_attention: bool = False,
         embedding_paths: list[Path] | None = None,
         reference_embedding_dim: int | None = None,
@@ -53,12 +57,26 @@ class EmbeddingDataset(Dataset):
         self.seq_ids = data["id"].tolist()
         
         # トークン化されたシーケンスの生成 (事前学習モデルを使用する場合のみ)
-        self.token_seqs = seq2token(
-            sequences=self.sequences,
-            tokens=tokens,
-            other_tokens=other_tokens,
-            use_additional_token=use_additional_token,
-        ) if use_pretrain_model else None
+        self.token_seqs = None
+        self.attn_biases = None
+        if use_pretrain_model:
+            self.token_seqs = seq2token(
+                sequences=self.sequences,
+                tokens=tokens,
+                other_tokens=other_tokens,
+                use_additional_token=use_additional_token,
+            )
+            for idx in range(len(self.token_seqs)):
+                if use_ernie_rna:
+                    attn_bias, _ = create_attention_bias(
+                        self.token_seqs[idx],
+                        use_ernie_rna=use_ernie_rna,
+                        ernie_rna_alpha=ernie_rna_alpha,
+                        tokens=tokens,
+                    )
+                    if self.attn_biases is None:
+                        self.attn_biases = []
+                    self.attn_biases.append(attn_bias)
         
         # 埋め込みのキャッシュファイルのパスのリスト
         self.cache_embedding_paths = embedding_paths if embedding_paths is not None else []
@@ -166,6 +184,7 @@ class EmbeddingDataset(Dataset):
             "seq_id": seq_id,
             "sequence": self.sequences[idx],
             "token_seq": self.token_seqs[idx] if self.token_seqs is not None else None,
+            "attn_bias": self.attn_biases[idx] if self.attn_biases is not None else None,
             "bp_matrix": bp_matrix,
             "length": sequence_length,
             "embedding": embedding,
@@ -177,6 +196,7 @@ class EmbeddingDataset(Dataset):
         seq_ids = [b["seq_id"] for b in batch]
         sequences = [b["sequence"] for b in batch]
         token_seqs = [b["token_seq"] for b in batch] if self.token_seqs is not None else None
+        attn_biases = [b["attn_bias"] for b in batch] if self.attn_biases is not None else None
         bp_matrices = [b["bp_matrix"] for b in batch]
         lengths = [b["length"] for b in batch]
         embeddings = [b["embedding"] for b in batch] if self.cache_embedding_paths else None
@@ -197,6 +217,7 @@ class EmbeddingDataset(Dataset):
         # バッチ用のテンソルとattentionマスクを初期化
         token_seqs_padded = None
         attn_mask = None
+        attn_biases_padded = None
         if self.token_seqs is not None:
             # additional tokenを使用する場合は, CLSとEOSの分だけmax_lengthより2大きいサイズでパディングする必要がある
             max_token_length = max_length + 2 if self.use_additional_token else max_length
@@ -206,6 +227,10 @@ class EmbeddingDataset(Dataset):
         
             # attentionマスクも同様にadditional tokenを考慮して初期化
             attn_mask = torch.full((batch_size, 1, max_token_length, max_token_length), fill_value=-1e6)
+
+            # attentionバイアスも同様にadditional tokenを考慮して初期化
+            if self.attn_biases is not None:
+                attn_biases_padded = torch.zeros((batch_size, 1, max_token_length, max_token_length))
         
         # 正解二次構造matrixを-1で初期化
         bp_matrices_padded = -torch.ones((batch_size, max_length, max_length), dtype=torch.int8)
@@ -234,6 +259,8 @@ class EmbeddingDataset(Dataset):
             if self.token_seqs is not None:
                 token_seqs_padded[k, :token_lengths[k]] = token_seqs[k]
                 attn_mask[k, :, :token_lengths[k], :token_lengths[k]] = 0
+                if self.attn_biases is not None:
+                    attn_biases_padded[k, :, :lengths[k], :lengths[k]] = attn_biases[k]
 
             bp_matrices_padded[k, :lengths[k], :lengths[k]] = bp_matrices[k]
             
@@ -254,6 +281,7 @@ class EmbeddingDataset(Dataset):
             "sequences": sequences,
             "token_seqs": token_seqs_padded,
             "attn_mask": attn_mask,
+            "attn_biases": attn_biases_padded,
             "bp_matrices": bp_matrices_padded,
             "lengths": lengths,
             "embeddings": embeddings_padded,
@@ -321,6 +349,8 @@ def create_dataloader(config: MainConfig, split: str, pretrain_cfgs: list[Pretra
             tokens=pretrain_cfgs[0].dataset.tokens,
             other_tokens=pretrain_cfgs[0].dataset.other_tokens,
             use_additional_token=pretrain_cfgs[0].experiment.use_additional_token,
+            use_ernie_rna=pretrain_cfgs[0].experiment.use_ernie_rna,
+            ernie_rna_alpha=pretrain_cfgs[0].framework.ernie_rna_alpha,
             use_attention=config.experiment.use_attention,
             embedding_paths=embedding_paths,
             reference_embedding_dim=reference_embedding_dim,
