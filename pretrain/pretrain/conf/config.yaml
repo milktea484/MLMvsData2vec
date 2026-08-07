@@ -22,6 +22,11 @@ common:
   use_gpu: true
   validation: true
   num_workers: 4
+  sptoken_prob: 0.15
+  mask_prob: 0.8
+  ernie_rna_alpha: 0.8
+  min_span_length: 4
+  max_span_length: 8
 
 checkpoint:
   model_save_interval: 30000
@@ -46,3 +51,4 @@ experiment:
   extract_repr_layers: ${model_size.n_layers}
   use_ernie_rna: false
   use_additional_token: false
+  use_span_mask: false

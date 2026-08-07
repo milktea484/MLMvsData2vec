@@ -6,9 +6,6 @@ name: mlm
 wandb_tags: ["mlm"]
 lr: 0.0002
 weight_decay: 0.01
-sptoken_prob: 0.15
-mask_prob: 0.8
-ernie_rna_alpha: 0.8
 
 arch:
   embed_dim: ${model_size.embed_dim}

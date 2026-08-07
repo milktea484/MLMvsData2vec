@@ -6,9 +6,6 @@ name: switch
 wandb_tags: ["switch"]
 lr: 0.0002
 weight_decay: 0.01
-sptoken_prob: 0.15
-mask_prob: 0.8
-ernie_rna_alpha: 0.8
 ema_decay: 0.999
 ema_end_decay: 0.9999
 ema_anneal_end_steps: ${div:${common.max_steps}, 5}

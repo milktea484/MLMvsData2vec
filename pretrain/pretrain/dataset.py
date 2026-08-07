@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .conf.config import MainConfig
-from .utils import create_attention_bias, masking, seq2token
+from .utils import create_attention_bias, masking, span_masking, seq2token
 
 
 class TrainingDataset(Dataset):
@@ -35,6 +35,7 @@ class TrainingDataset(Dataset):
         use_additional_token: bool = False,
         use_ernie_rna: bool = False,
         ernie_rna_alpha: float = 0.8,
+        span_range: tuple[int, int] | None = None,
     ):
         if dataset_path.suffix != ".h5":
             raise ValueError("TrainingDataset only supports .h5 files.")
@@ -47,6 +48,7 @@ class TrainingDataset(Dataset):
         self.use_additional_token = use_additional_token
         self.use_ernie_rna = use_ernie_rna
         self.ernie_rna_alpha = ernie_rna_alpha
+        self.span_range = span_range
         self.cls_token = tokens.index("<cls>")
         self.eos_token = tokens.index("<eos>")
         
@@ -74,14 +76,27 @@ class TrainingDataset(Dataset):
         token_seq = torch.tensor(token_seq, dtype=torch.long)
         
         # マスクされたトークン配列の作成
-        token_seq_masked, masked_idxes = masking(
-            token_seq,
-            mask_idx=self.tokens.index("<mask>"),
-            rna_tokens=self.rna_tokens,
-            sptoken_prob=self.sptoken_prob,
-            mask_prob=self.mask_prob,
-            use_additional_token=self.use_additional_token
-        )
+        if self.span_range is None:
+            token_seq_masked, masked_idxes = masking(
+                token_seq,
+                mask_idx=self.tokens.index("<mask>"),
+                rna_tokens=self.rna_tokens,
+                sptoken_prob=self.sptoken_prob,
+                mask_prob=self.mask_prob,
+                use_additional_token=self.use_additional_token,
+            )
+        # span maskingを使用する場合
+        else:
+            token_seq_masked, masked_idxes = span_masking(
+                token_seq,
+                mask_idx=self.tokens.index("<mask>"),
+                rna_tokens=self.rna_tokens,
+                sptoken_prob=self.sptoken_prob,
+                mask_prob=self.mask_prob,
+                min_span_length=self.span_range[0],
+                max_span_length=self.span_range[1],
+                use_additional_token=self.use_additional_token,
+            )
         
         # attentionバイアスの作成
         attn_bias, attn_bias_masked = create_attention_bias(
@@ -267,11 +282,11 @@ def create_dataloader(config: MainConfig, split: str):
             dataset_path=Path(config.path.data_dir) / config.dataset.train_file,
             tokens=config.dataset.tokens,
             rna_tokens=config.dataset.rna_tokens,
-            sptoken_prob=config.framework.sptoken_prob,
-            mask_prob=config.framework.mask_prob,
+            sptoken_prob=config.common.sptoken_prob,
+            mask_prob=config.common.mask_prob,
             use_additional_token=config.experiment.use_additional_token,
             use_ernie_rna=config.experiment.use_ernie_rna,
-            ernie_rna_alpha=config.framework.ernie_rna_alpha,
+            ernie_rna_alpha=config.common.ernie_rna_alpha,
         )
         gradient_accumulation_steps = config.model_size.gradient_accumulation_steps
     elif split == "validation":
@@ -279,11 +294,11 @@ def create_dataloader(config: MainConfig, split: str):
             dataset_path=Path(config.path.data_dir) / config.dataset.validation_file,
             tokens=config.dataset.tokens,
             rna_tokens=config.dataset.rna_tokens,
-            sptoken_prob=config.framework.sptoken_prob,
-            mask_prob=config.framework.mask_prob,
+            sptoken_prob=config.common.sptoken_prob,
+            mask_prob=config.common.mask_prob,
             use_additional_token=config.experiment.use_additional_token,
             use_ernie_rna=config.experiment.use_ernie_rna,
-            ernie_rna_alpha=config.framework.ernie_rna_alpha,
+            ernie_rna_alpha=config.common.ernie_rna_alpha,
         )
         gradient_accumulation_steps = config.model_size.gradient_accumulation_steps
     else:
@@ -293,7 +308,7 @@ def create_dataloader(config: MainConfig, split: str):
             other_tokens=config.dataset.other_tokens,
             use_additional_token=config.experiment.use_additional_token,
             use_ernie_rna=config.experiment.use_ernie_rna,
-            ernie_rna_alpha=config.framework.ernie_rna_alpha,
+            ernie_rna_alpha=config.common.ernie_rna_alpha,
         )
         gradient_accumulation_steps = config.model_size.gradient_accumulation_steps_for_test  # テスト時は勾配を蓄積しない
     

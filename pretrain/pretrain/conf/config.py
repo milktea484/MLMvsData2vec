@@ -24,11 +24,6 @@ class FrameworkConfig:
     wandb_tags: list[str] = MISSING
     lr: float = MISSING
     weight_decay: float = MISSING
-    sptoken_prob: float = MISSING
-    """入力配列のうちspecial tokenとする確率"""
-    mask_prob: float = MISSING
-    """special tokenのうち"<mask>"トークンに置換する確率"""
-    ernie_rna_alpha: float = MISSING
     
     arch: ArchitectureConfig = MISSING
     
@@ -145,6 +140,13 @@ class CommonConfig:
     use_gpu: bool = MISSING
     validation: bool = MISSING
     num_workers: int = MISSING
+    sptoken_prob: float = MISSING
+    """入力配列のうちspecial tokenとする確率"""
+    mask_prob: float = MISSING
+    """special tokenのうち"<mask>"トークンに置換する確率"""
+    ernie_rna_alpha: float = MISSING
+    k_mer_mask: int = MISSING
+    """マスクする際のk-merの長さ. 1の場合は単一塩基をマスクする"""
     
 # checkpoint設定クラス
 @dataclass
@@ -194,6 +196,10 @@ class ExperimentConfig:
     use_additional_token: bool = MISSING
     """
     CLS, EOSトークンを使用するかどうか. use_ernie_rnaがTrueの場合, 自動的にTrueになる
+    """
+    use_span_mask: bool = MISSING
+    """
+    span maskingを使用するかどうか. 
     """
     
     def __post_init__(self):
