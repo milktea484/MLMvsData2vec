@@ -145,8 +145,8 @@ class CommonConfig:
     mask_prob: float = MISSING
     """special tokenのうち"<mask>"トークンに置換する確率"""
     ernie_rna_alpha: float = MISSING
-    k_mer_mask: int = MISSING
-    """マスクする際のk-merの長さ. 1の場合は単一塩基をマスクする"""
+    min_span_length: int = MISSING
+    max_span_length: int = MISSING
     
 # checkpoint設定クラス
 @dataclass
