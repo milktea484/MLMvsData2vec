@@ -287,6 +287,7 @@ def create_dataloader(config: MainConfig, split: str):
             use_additional_token=config.experiment.use_additional_token,
             use_ernie_rna=config.experiment.use_ernie_rna,
             ernie_rna_alpha=config.common.ernie_rna_alpha,
+            span_range=(config.common.min_span_length, config.common.max_span_length) if config.experiment.use_span_mask else None
         )
         gradient_accumulation_steps = config.model_size.gradient_accumulation_steps
     elif split == "validation":
@@ -299,6 +300,7 @@ def create_dataloader(config: MainConfig, split: str):
             use_additional_token=config.experiment.use_additional_token,
             use_ernie_rna=config.experiment.use_ernie_rna,
             ernie_rna_alpha=config.common.ernie_rna_alpha,
+            span_range=(config.common.min_span_length, config.common.max_span_length) if config.experiment.use_span_mask else None
         )
         gradient_accumulation_steps = config.model_size.gradient_accumulation_steps
     else:
