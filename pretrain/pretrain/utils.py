@@ -108,11 +108,11 @@ def span_masking(
     sptoken_idxes = sptoken_idxes.nonzero(as_tuple=True)[0].tolist()
 
     # マスク種類の決定
-    probs = torch.rand(len(sptoken_idxes), device=masked_token_seq.device).tolist()
+    probs = torch.rand(len(sptoken_idxes)).tolist()
     rna_idxes = torch.arange(len(rna_tokens), dtype=masked_token_seq.dtype, device=masked_token_seq.device)
 
     # スパンの決定
-    span_lengths = torch.randint(min_span_length, max_span_length + 1, (len(sptoken_idxes),), device=masked_token_seq.device).tolist()
+    span_lengths = torch.randint(min_span_length, max_span_length + 1, (len(sptoken_idxes),)).tolist()
 
     for idx, prob in zip(sptoken_idxes, probs):
         span_length = span_lengths[sptoken_idxes.index(idx)]
@@ -124,12 +124,13 @@ def span_masking(
             # EOSトークンを考慮
             if use_additional_token:
                 span_length -= 1
+            span_lengths[sptoken_idxes.index(idx)] = span_length
 
         if prob < mask_prob:
             masked_token_seq[idx : idx + span_length] = mask_idx
         elif prob > 0.5 + mask_prob / 2.0:
             # 元のトークン以外のトークンを一つ選ぶ
-            other_idxes = torch.tensor([rna_idxes[rna_idxes != masked_token_seq[i]].tolist() for i in range(idx, idx + span_length)], device=masked_token_seq.device)   # shape: (span_length, num_tokens-1)
+            other_idxes = torch.tensor([rna_idxes[rna_idxes != token_seq[i]].tolist() for i in range(idx, idx + span_length)], device=masked_token_seq.device)   # shape: (span_length, num_tokens-1)
             rand_idx = torch.randint(0, other_idxes.shape[1], (span_length,), device=masked_token_seq.device)
             masked_token_seq[idx : idx + span_length] = other_idxes[torch.arange(span_length), rand_idx]
 
