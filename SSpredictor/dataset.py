@@ -350,7 +350,7 @@ def create_dataloader(config: MainConfig, split: str, pretrain_cfgs: list[Pretra
             other_tokens=pretrain_cfgs[0].dataset.other_tokens,
             use_additional_token=pretrain_cfgs[0].experiment.use_additional_token,
             use_ernie_rna=pretrain_cfgs[0].experiment.use_ernie_rna,
-            ernie_rna_alpha=pretrain_cfgs[0].framework.ernie_rna_alpha,
+            ernie_rna_alpha=pretrain_cfgs[0].common.ernie_rna_alpha,
             use_attention=config.experiment.use_attention,
             embedding_paths=embedding_paths,
             reference_embedding_dim=reference_embedding_dim,
