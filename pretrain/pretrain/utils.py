@@ -1,6 +1,7 @@
 import torch
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
+from itertools import product
 
 from .conf.config import (AdamWConfig, CosineSchedulerConfig, MainConfig,
                           MLMConfig, SwitchConfig, data2vecConfig)
@@ -9,7 +10,7 @@ from .conf.config import (AdamWConfig, CosineSchedulerConfig, MainConfig,
 def masking(
     token_seq: torch.Tensor,
     mask_idx: int,
-    rna_tokens: list[str] = ["A", "C", "G", "U", "N"],
+    token_vocab_size: int = 5,
     sptoken_prob: float = 0.15,
     mask_prob: float = 0.8,
     use_additional_token: bool = False
@@ -21,7 +22,7 @@ def masking(
     Args:
         token_seq (torch.Tensor): 元のトークン配列 (1次元テンソル)
         mask_idx (int): "<mask>"トークンのインデックス
-        rna_tokens (list[str]): RNAトークンのリスト (default=["A", "C", "G", "U", "N"])
+        token_vocab_size (int): トークン語彙のサイズ (default=5, A, C, G, U, N)
         sptoken_prob (float): マスク対象とする確率 (default=0.15)
         mask_prob (float): マスク対象のうち"<mask>"トークンに置換する確率 (default=0.8)
         use_additional_token (bool): CLS, EOSトークンを使用するかどうか (default=False)
@@ -47,7 +48,7 @@ def masking(
     
     # マスク種類の決定
     probs = torch.rand(len(sptoken_idxes), device=masked_token_seq.device).tolist()
-    rna_idxes = torch.arange(len(rna_tokens), dtype=masked_token_seq.dtype, device=masked_token_seq.device)
+    rna_idxes = torch.arange(token_vocab_size, dtype=masked_token_seq.dtype, device=masked_token_seq.device)
     
     for idx, prob in zip(sptoken_idxes, probs):
         if prob < mask_prob:
@@ -63,7 +64,7 @@ def masking(
 def span_masking(
     token_seq: torch.Tensor,
     mask_idx: int,
-    rna_tokens: list[str] = ["A", "C", "G", "U", "N"],
+    token_vocab_size: int = 5,
     sptoken_prob: float = 0.15,
     mask_prob: float = 0.8,
     min_span_length: int = 4,
@@ -77,7 +78,7 @@ def span_masking(
     Args:
         token_seq (torch.Tensor): 元のトークン配列 (1次元テンソル)
         mask_idx (int): "<mask>"トークンのインデックス
-        rna_tokens (list[str]): RNAトークンのリスト (default=["A", "C", "G", "U", "N"])
+        token_vocab_size (int): トークン語彙のサイズ (default=5, A, C, G, U, N)
         sptoken_prob (float): マスク対象とする確率 (default=0.15)
         mask_prob (float): マスク対象のうち"<mask>"トークンに置換する確率 (default=0.8)
         min_span_length (int): マスクする際の最小スパン長 (default=4)
@@ -109,7 +110,7 @@ def span_masking(
 
     # マスク種類の決定
     probs = torch.rand(len(sptoken_idxes)).tolist()
-    rna_idxes = torch.arange(len(rna_tokens), dtype=masked_token_seq.dtype, device=masked_token_seq.device)
+    rna_idxes = torch.arange(token_vocab_size, dtype=masked_token_seq.dtype, device=masked_token_seq.device)
 
     # スパンの決定
     span_lengths = torch.randint(min_span_length, max_span_length + 1, (len(sptoken_idxes),)).tolist()
@@ -142,6 +143,60 @@ def span_masking(
     updated_sptoken_idxes = list(set(updated_sptoken_idxes))
 
     return masked_token_seq, updated_sptoken_idxes
+
+def kmer_tokenize(
+    token_seq: torch.Tensor,
+    kmer_length: int = 3,
+    kmer_stride: int = 1,
+    use_additional_token: bool = False
+) -> torch.Tensor:
+    """
+    トークン配列をk-merトークンに変換する関数
+    
+    Args:
+        token_seq (torch.Tensor): 元のトークン配列
+        kmer_length (int): k-merの長さ (default=3)
+        kmer_stride (int): k-merのストライド (default=1)
+        use_additional_token (bool): CLS, EOSトークンを使用するかどうか (default=False)
+    Returns:
+        torch.Tensor: k-merトークンの配列
+    """
+    
+    temp_seq = token_seq.clone().detach()
+    if use_additional_token:
+        temp_seq = token_seq[1:-1]  # CLS, EOSトークンを除外
+    
+    seq_length = temp_seq.size(0)
+
+    if seq_length < kmer_length:
+        return torch.empty(0, dtype=torch.long, device=temp_seq.device)
+
+    # [5^(k-1), 5^(k-2), ..., 5, 1]
+    powers = 5 ** torch.arange(
+        kmer_length - 1,
+        -1,
+        -1,
+        device=temp_seq.device,
+        dtype=torch.long,
+    )
+
+    # [num_kmers, k]
+    kmers = temp_seq.unfold(
+        dimension=0,
+        size=kmer_length,
+        step=kmer_stride,
+    )
+
+    # 5進数としてk-mer IDを計算
+    kmer_tokens = (kmers * powers).sum(dim=1)
+    
+    if use_additional_token:
+        # CLS, EOSトークンを追加
+        cls_token = token_seq[0].unsqueeze(0)
+        eos_token = token_seq[-1].unsqueeze(0)
+        kmer_tokens = torch.cat([cls_token, kmer_tokens, eos_token], dim=0)
+
+    return kmer_tokens
 
 def create_attention_bias(
     token_seq: torch.Tensor,

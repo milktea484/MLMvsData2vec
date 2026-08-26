@@ -147,6 +147,8 @@ class CommonConfig:
     ernie_rna_alpha: float = MISSING
     min_span_length: int = MISSING
     max_span_length: int = MISSING
+    kmer_length: int = MISSING
+    kmer_stride: int = MISSING
     
 # checkpoint設定クラス
 @dataclass
@@ -166,6 +168,7 @@ class PathConfig:
 class DatasetConfig:
     tokens: list[str] = MISSING
     rna_tokens: list[str] = MISSING
+    additional_tokens: list[str] = MISSING
     other_tokens: list[str] = MISSING
     
     max_length: int = MISSING
@@ -201,6 +204,11 @@ class ExperimentConfig:
     """
     span maskingを使用するかどうか. 
     """
+    use_kmer_token: bool = MISSING
+    """
+    kmerトークン化を使用するかどうか. 
+    """
+    
     
     def __post_init__(self):
         if self.use_ernie_rna:

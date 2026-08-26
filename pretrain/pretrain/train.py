@@ -69,10 +69,13 @@ def main(cfg: MainConfig):
         val_batch_iterator["validation"] = create_batch_iterator(config=cfg, split="validation")
     
     # モデルの動的インポートと初期化
+    kmer_length = cfg.common.kmer_length if cfg.experiment.use_kmer_token else 1
+    num_tokens = len(cfg.dataset.rna_tokens) ** kmer_length
+    padding_idx = num_tokens + cfg.dataset.additional_tokens.index("<pad>")
     model: BaseModel = hydra.utils.instantiate(
         cfg.framework,
-        padding_idx=cfg.dataset.tokens.index("<pad>"),
-        num_tokens=len(cfg.dataset.tokens),
+        padding_idx=padding_idx,
+        num_tokens=num_tokens + len(cfg.dataset.additional_tokens),
         experiment_cfg=cfg.experiment,
         device=device
     )

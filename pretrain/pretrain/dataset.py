@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .conf.config import MainConfig
-from .utils import create_attention_bias, masking, span_masking, seq2token
+from .utils import create_attention_bias, kmer_tokenize, masking, span_masking, seq2token
 
 
 class TrainingDataset(Dataset):
@@ -23,12 +23,17 @@ class TrainingDataset(Dataset):
         use_additional_token (bool): CLS, EOSトークンを使用するかどうか
         use_ernie_rna (bool): ERNIE-RNAの戦略を使用するかどうか
         ernie_rna_alpha (float): ERNIE-RNAのalpha値
+        span_range (tuple[int, int] | None): span maskingを使用する場合の最小・最大span長
+        use_kmer_token (int): kmerトークン化を使用するかどうか.
+        kmer_length (int): kmerトークン化を使用する場合のkmer長
+        kmer_stride (int): kmerトークン化を使用する場合のstride
     """
     
     def __init__(
         self,
         dataset_path: Path,
         tokens: list[str] = ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"],
+        additional_tokens: list[str] = ["<mask>", "<pad>", "<cls>", "<eos>"],
         rna_tokens: list[str] = ["A", "C", "G", "U", "N"],
         sptoken_prob: float = 0.15,
         mask_prob: float = 0.8,
@@ -36,21 +41,36 @@ class TrainingDataset(Dataset):
         use_ernie_rna: bool = False,
         ernie_rna_alpha: float = 0.8,
         span_range: tuple[int, int] | None = None,
+        use_kmer_token: int = False,
+        kmer_length: int = 1,
+        kmer_stride: int = 1,
     ):
         if dataset_path.suffix != ".h5":
             raise ValueError("TrainingDataset only supports .h5 files.")
 
         self.cache = dataset_path
+        
         self.tokens = tokens
         self.rna_tokens = rna_tokens
+        self.additional_tokens = additional_tokens
+
+        self.use_kmer_token = use_kmer_token
+        self.kmer_length = kmer_length if use_kmer_token else 1
+        self.kmer_stride = kmer_stride
+        
         self.sptoken_prob = sptoken_prob
         self.mask_prob = mask_prob
+        
         self.use_additional_token = use_additional_token
+        
         self.use_ernie_rna = use_ernie_rna
         self.ernie_rna_alpha = ernie_rna_alpha
+        
         self.span_range = span_range
-        self.cls_token = tokens.index("<cls>")
-        self.eos_token = tokens.index("<eos>")
+            
+        self.additional_token_idxes = {
+            additional_token: len(rna_tokens) ** self.kmer_length + idx for idx, additional_token in enumerate(additional_tokens)
+        }
         
         with h5py.File(self.cache, "r") as hdf:
             self.dataset_length = len(hdf["/seqs"])
@@ -61,7 +81,7 @@ class TrainingDataset(Dataset):
         if self._hdf is None:
             self._hdf = h5py.File(self.cache, "r")
         return self._hdf
-        
+    
     def __len__(self):
         return self.dataset_length
         
@@ -72,15 +92,24 @@ class TrainingDataset(Dataset):
         # token_seqは文字列なのでintに変換後，torch.tensorに変換
         token_seq = [int(t) for t in list(token_seq)]
         if self.use_additional_token:
-            token_seq = [self.cls_token] + token_seq + [self.eos_token]
+            token_seq = [self.additional_token_idxes["<cls>"]] + token_seq + [self.additional_token_idxes["<eos>"]]
         token_seq = torch.tensor(token_seq, dtype=torch.long)
+        
+        # kmerトークン化を使用する場合，token_seqをkmerに変換
+        if self.use_kmer_token:
+            token_seq = kmer_tokenize(
+                token_seq,
+                self.kmer_length,
+                self.kmer_stride,
+                self.use_additional_token
+            )
         
         # マスクされたトークン配列の作成
         if self.span_range is None:
             token_seq_masked, masked_idxes = masking(
                 token_seq,
-                mask_idx=self.tokens.index("<mask>"),
-                rna_tokens=self.rna_tokens,
+                mask_idx=self.additional_token_idxes["<mask>"],
+                token_vocab_size=len(self.rna_tokens),
                 sptoken_prob=self.sptoken_prob,
                 mask_prob=self.mask_prob,
                 use_additional_token=self.use_additional_token,
@@ -89,8 +118,8 @@ class TrainingDataset(Dataset):
         else:
             token_seq_masked, masked_idxes = span_masking(
                 token_seq,
-                mask_idx=self.tokens.index("<mask>"),
-                rna_tokens=self.rna_tokens,
+                mask_idx=self.additional_token_idxes["<mask>"],
+                token_vocab_size=len(self.rna_tokens)**self.kmer_length,
                 sptoken_prob=self.sptoken_prob,
                 mask_prob=self.mask_prob,
                 min_span_length=self.span_range[0],
@@ -99,6 +128,8 @@ class TrainingDataset(Dataset):
             )
         
         # attentionバイアスの作成
+        if self.use_kmer_token and self.use_ernie_rna:
+            raise ValueError("ERNIE-RNA strategy is not compatible with kmer tokenization.")
         attn_bias, attn_bias_masked = create_attention_bias(
             token_seq,
             token_seq_masked,
@@ -129,8 +160,8 @@ class TrainingDataset(Dataset):
         max_length = max(lengths)
         
         # バッチ用のテンソルを初期化
-        token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
-        token_seqs_masked_padded = torch.full((batch_size, max_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
+        token_seqs_padded = torch.full((batch_size, max_length), fill_value=self.additional_token_idxes["<pad>"], dtype=torch.long)
+        token_seqs_masked_padded = torch.full((batch_size, max_length), fill_value=self.additional_token_idxes["<pad>"], dtype=torch.long)
         
         # attentionマスクの初期化
         attn_mask = torch.full((batch_size, 1, max_length, max_length), fill_value=-1e6)
@@ -287,7 +318,10 @@ def create_dataloader(config: MainConfig, split: str):
             use_additional_token=config.experiment.use_additional_token,
             use_ernie_rna=config.experiment.use_ernie_rna,
             ernie_rna_alpha=config.common.ernie_rna_alpha,
-            span_range=(config.common.min_span_length, config.common.max_span_length) if config.experiment.use_span_mask else None
+            span_range=(config.common.min_span_length, config.common.max_span_length) if config.experiment.use_span_mask else None,
+            use_kmer_token=config.experiment.use_kmer_token,
+            kmer_length=config.common.kmer_length,
+            kmer_stride=config.common.kmer_stride
         )
         gradient_accumulation_steps = config.model_size.gradient_accumulation_steps
     elif split == "validation":
@@ -300,7 +334,10 @@ def create_dataloader(config: MainConfig, split: str):
             use_additional_token=config.experiment.use_additional_token,
             use_ernie_rna=config.experiment.use_ernie_rna,
             ernie_rna_alpha=config.common.ernie_rna_alpha,
-            span_range=(config.common.min_span_length, config.common.max_span_length) if config.experiment.use_span_mask else None
+            span_range=(config.common.min_span_length, config.common.max_span_length) if config.experiment.use_span_mask else None,
+            use_kmer_token=config.experiment.use_kmer_token,
+            kmer_length=config.common.kmer_length,
+            kmer_stride=config.common.kmer_stride
         )
         gradient_accumulation_steps = config.model_size.gradient_accumulation_steps
     else:

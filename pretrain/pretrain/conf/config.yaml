@@ -27,6 +27,8 @@ common:
   ernie_rna_alpha: 0.8
   min_span_length: 4
   max_span_length: 8
+  kmer_length: 3
+  kmer_stride: 1
 
 checkpoint:
   model_save_interval: 30000
@@ -41,6 +43,7 @@ path:
 dataset:
   tokens: ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"]
   rna_tokens: ["A", "C", "G", "U", "N"]
+  additional_tokens: ["<mask>", "<pad>", "<cls>", "<eos>"]
   other_tokens: ["B", "D", "F", "I", "H", "K", "M", "S", "R", "W", "V", "Y", "X"]
   max_length: 512
   train_file: train_partition.h5
@@ -52,3 +55,4 @@ experiment:
   use_ernie_rna: false
   use_additional_token: false
   use_span_mask: false
+  use_kmer_token: false
