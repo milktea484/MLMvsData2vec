@@ -46,3 +46,4 @@ experiment:
   additional_experiment_info: null
   use_teacher: false
   use_attention: true
+  kmer_token_processing_method: "average" # "average"

@@ -165,9 +165,6 @@ class EmbeddingDataset(Dataset):
             self.reference_embedding_dim += embedding.shape[0] if self.use_attention else embedding.shape[-1]
             self.is_reference_embedding_dim_fixed = True
         
-        # 塩基対行列の生成
-        bp_matrix = bp2matrix(sequence_length, self.base_pairs[idx])
-        
         # 参照埋め込みの生成 (KnotFoldで必要な場合)
         reference_embedding = None
         if self.reference_embedding_dim is not None:
@@ -179,6 +176,9 @@ class EmbeddingDataset(Dataset):
                 reference_embedding = torch.randn((self.reference_embedding_dim, sequence_length, sequence_length), generator=g)
             else:
                 reference_embedding = torch.randn((sequence_length, self.reference_embedding_dim), generator=g)
+        
+        # 塩基対行列の生成
+        bp_matrix = bp2matrix(sequence_length, self.base_pairs[idx])
         
         return {
             "seq_id": seq_id,

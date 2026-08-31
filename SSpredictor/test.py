@@ -153,10 +153,13 @@ def main(cfg: MainConfig):
             elif target == "models.MLMModel":
                 pretrain_cfg.framework._target_ = "pretrain.models.MLMModel"
             
+            kmer_length = pretrain_cfg.common.kmer_length if pretrain_cfg.experiment.use_kmer_token else 1
+            num_tokens = len(pretrain_cfg.dataset.rna_tokens) ** kmer_length
+            padding_idx = num_tokens + pretrain_cfg.dataset.additional_tokens.index("<pad>")
             pretrain_model: PretrainBaseModel = hydra.utils.instantiate(
                 pretrain_cfg.framework,
-                padding_idx=pretrain_cfg.dataset.tokens.index("<pad>"),
-                num_tokens=len(pretrain_cfg.dataset.tokens),
+                padding_idx=padding_idx,
+                num_tokens=num_tokens + len(pretrain_cfg.dataset.additional_tokens),
                 experiment_cfg=pretrain_cfg.experiment,
                 device=device
             )
@@ -192,13 +195,23 @@ def main(cfg: MainConfig):
         pretrain_model_cfgs = [info["config"] for info in pretrain_model_infos]
 
         use_additional_token_list = []
+        kmer_token_infos = []
         for pretrain_cfg in pretrain_model_cfgs:
+            # additional tokenの設定をリストに追加
             use_additional_token_list.append(pretrain_cfg.experiment.use_additional_token)
             if train_cfg.experiment.use_attention:
                 embed_dim = pretrain_cfg.framework.arch.n_layers * pretrain_cfg.framework.arch.n_heads
+                
             else:
                 embed_dim = pretrain_cfg.model_size.embed_dim
             total_pretrain_embedding_dim += embed_dim
+            
+            # kmer tokenの情報をリストに追加
+            kmer_token_infos.append({
+                "kmer_length": pretrain_cfg.common.kmer_length,
+                "kmer_stride": pretrain_cfg.common.kmer_stride,
+                "kmer_token_processing_method": train_cfg.experiment.kmer_token_processing_method,
+            } if pretrain_cfg.experiment.use_kmer_token else None)
         
         if len(set(use_additional_token_list)) > 1:
             raise ValueError("When using multiple pretrain models, the setting of experiment.use_additional_token must be the same across all pretrain models.")
@@ -246,6 +259,7 @@ def main(cfg: MainConfig):
             pretrain_models=[info["model"] for info in pretrain_model_infos] if pretrain_model_infos else None,
             embedding_dim=embedding_dim,
             use_attention=train_cfg.experiment.use_attention,
+            kmer_token_infos=kmer_token_infos,
             device=device
         )
         model.eval()
@@ -261,6 +275,7 @@ def main(cfg: MainConfig):
                 pretrain_models=[info["model"] for info in pretrain_model_infos] if pretrain_model_infos else None,
                 embedding_dim=embedding_dim,
                 use_attention=train_cfg.experiment.use_attention,
+                kmer_token_infos=kmer_token_infos, # referenceモデルではkmer tokenは使用しない
                 device=device,
                 reference=True
             )

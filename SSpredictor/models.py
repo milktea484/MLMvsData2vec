@@ -21,6 +21,9 @@ class KnotFoldModel(nn.Module):
     Args:
         arch: アーキテクチャの設定. conf/config.pyのKnotFoldArchConfigを参照.
         pretrain_models: 事前学習モデルのリスト. BaseModelを継承したモデルを想定
+        kmer_token_infos: kmer tokenの情報のリスト. 各要素は以下のキーを持つことを想定.
+            - kmer_length: kmer tokenの長さ
+            - kmer_stride: kmer tokenのストライド
         embedding_dim: 埋め込み次元数. 事前学習モデルの特徴量とデータセットの特徴量を結合した後の次元数を指定する必要がある.
         use_attention: 入力の形状がattention weightかどうか.
         device: モデルを配置するデバイス.
@@ -30,6 +33,7 @@ class KnotFoldModel(nn.Module):
         self,
         arch: dict[str, Any],
         pretrain_models: list[pretrain.models.BaseModel] | None,
+        kmer_token_infos: list[dict[str, Any]] | None,
         embedding_dim: int,
         use_attention: bool,
         device: torch.device,
@@ -45,6 +49,9 @@ class KnotFoldModel(nn.Module):
                 pretrain_model.to(device=device)
         self.pretrain_models = pretrain_models
         
+        # kmer tokenの情報
+        self.kmer_token_infos = kmer_token_infos
+            
         # アーキテクチャの構築
         self.norm = nn.LayerNorm(embedding_dim) 
         
@@ -64,6 +71,265 @@ class KnotFoldModel(nn.Module):
         self.device = device
         self.to(device=device)
     
+    def _kmer_to_nucleotide_1d(
+        self,
+        pretrain_embedding: torch.Tensor,
+        sequence_lengths: torch.Tensor,
+        kmer_token_info: dict[str, int],
+    ) -> torch.Tensor:
+        """
+        Convert k-mer representations to nucleotide-level representations.
+
+        Args:
+            pretrain_embedding:
+                [B, N_max, E]
+                Padded k-mer representations.
+
+            sequence_lengths:
+                [B]
+                Original nucleotide sequence lengths.
+
+            kmer_token_info:
+                Dictionary containing k-mer related information.
+
+        Returns:
+            nucleotide:
+                [B, L_max, E]
+        """
+        B, N_max, E = pretrain_embedding.shape
+        L_max = sequence_lengths.max().item()
+
+        device = pretrain_embedding.device
+        
+        kmer_length = kmer_token_info["kmer_length"]
+        
+        # ---------------------------------------------------------
+        # 1. Valid k-mer mask
+        # ---------------------------------------------------------
+        kmer_counts = sequence_lengths - kmer_length + 1
+        kmer_counts = torch.clamp(kmer_counts, min=0)
+
+        kmer_idx = torch.arange(
+            N_max,
+            device=device,
+        ).unsqueeze(0)  # [1, N_max]
+
+        kmer_mask = (
+            kmer_idx < kmer_counts.unsqueeze(1)
+        )  # [B, N_max]
+
+        pretrain_embedding = pretrain_embedding * kmer_mask.unsqueeze(-1)
+
+        # ---------------------------------------------------------
+        # 2. Aggregate k-mers -> nucleotide
+        # ---------------------------------------------------------
+        x = pretrain_embedding.permute(0, 2, 1)  # [B, E, N_max]
+
+        weight = torch.ones(
+            E,
+            1,
+            kmer_length,
+            dtype=pretrain_embedding.dtype,
+            device=device,
+        )   # [E, 1, kmer_length]
+
+        nucleotide = torch.nn.functional.conv_transpose1d(
+            x,
+            weight,
+            stride=1,
+            padding=0,
+            groups=E,
+        )
+
+        nucleotide = nucleotide.permute(0, 2, 1)  # [B, L_conv, E]
+        
+        # ---------------------------------------------------------
+        # 3. Valid nucleotide mask
+        # ---------------------------------------------------------
+        nucleotide_idx = torch.arange(
+            L_max,
+            device=device,
+        ).unsqueeze(0)
+
+        nucleotide_mask = (
+            nucleotide_idx < sequence_lengths.unsqueeze(1)
+        )  # [B, L_max]
+
+        # ---------------------------------------------------------
+        # 4. Correct normalization
+        # ---------------------------------------------------------
+        #
+        # For each nucleotide i:
+        # number of VALID k-mers covering i
+        #
+        # This is not always the same across sequences.
+        #
+        i = torch.arange(
+            L_max,
+            device=device,
+        ).unsqueeze(0)  # [1, L_max]
+
+        start = torch.clamp(
+            i - kmer_length + 1,
+            min=0,
+        )   # [1, L_max]
+
+        end = torch.minimum(
+            i,
+            sequence_lengths.unsqueeze(1) - kmer_length,
+        )
+
+        count = (end - start + 1).clamp(min=1)
+
+        nucleotide = nucleotide / count.unsqueeze(-1)   # [B, L_max, E]
+
+        # ---------------------------------------------------------
+        # 5. Zero out padded nucleotide positions
+        # ---------------------------------------------------------
+        nucleotide = (
+            nucleotide
+            * nucleotide_mask.unsqueeze(-1)
+        )
+
+        return nucleotide
+
+    def _kmer_to_nucleotide_2d(
+        self,
+        attention_map: torch.Tensor,
+        sequence_lengths: torch.Tensor,
+        kmer_token_info: dict[str, int],
+    ) -> torch.Tensor:
+        """
+        Convert k-mer attention maps to nucleotide-level attention maps.
+
+        Args:
+            attention_map:
+                [B, E, N_max, N_max]
+                Padded k-mer attention maps.
+
+            sequence_lengths:
+                [B]
+                Original nucleotide sequence lengths.
+
+            kmer_token_info:
+                Dictionary containing k-mer related information.
+
+        Returns:
+            nucleotide_attention:
+                [B, E, L_max, L_max]
+        """
+        B, E, N_max, _ = attention_map.shape
+        L_max = sequence_lengths.max().item()
+
+        device = attention_map.device
+        dtype = attention_map.dtype
+
+        kmer_length = kmer_token_info["kmer_length"]
+
+        # ---------------------------------------------------------
+        # 1. Valid k-mer mask
+        # ---------------------------------------------------------
+        kmer_counts = sequence_lengths - kmer_length + 1
+        kmer_counts = torch.clamp(kmer_counts, min=0)
+
+        kmer_idx = torch.arange(
+            N_max,
+            device=device,
+        ).unsqueeze(0)  # [1, N_max]
+
+        kmer_mask = (
+            kmer_idx < kmer_counts.unsqueeze(1)
+        )  # [B, N_max]
+
+        # Mask both query and key axes.
+        attention_map = (
+            attention_map
+            * kmer_mask.unsqueeze(1).unsqueeze(-1)
+            * kmer_mask.unsqueeze(1).unsqueeze(2)
+        )
+
+        # ---------------------------------------------------------
+        # 2. Aggregate k-mer pairs -> nucleotide pairs
+        # ---------------------------------------------------------
+        #
+        # [B, E, N, N]
+        #
+        weight = torch.ones(
+            E,
+            1,
+            kmer_length,
+            kmer_length,
+            dtype=dtype,
+            device=device,
+        )  # [E, 1, k, k]
+
+        nucleotide_attention = torch.nn.functional.conv_transpose2d(
+            attention_map,
+            weight,
+            stride=1,
+            padding=0,
+            groups=E,
+        )
+        # [B, E, N_max+k-1, N_max+k-1]
+
+        nucleotide_attention = nucleotide_attention[
+            :, :, :L_max, :L_max
+        ]
+
+        # ---------------------------------------------------------
+        # 3. Number of valid k-mers covering each nucleotide
+        # ---------------------------------------------------------
+        i = torch.arange(
+            L_max,
+            device=device,
+        ).unsqueeze(0)  # [1, L_max]
+
+        start = torch.clamp(
+            i - kmer_length + 1,
+            min=0,
+        )
+
+        end = torch.minimum(
+            i + 1,
+            sequence_lengths.unsqueeze(1) - kmer_length + 1,
+        )
+
+        count = (
+            end - start
+        ).clamp(min=1).to(dtype)  # [B, L_max]
+
+        # ---------------------------------------------------------
+        # 4. 2D average normalization
+        # ---------------------------------------------------------
+        #
+        # denominator:
+        #   count[i] * count[j]
+        #
+        normalization = (
+            count.unsqueeze(1).unsqueeze(-1)
+            * count.unsqueeze(1).unsqueeze(2)
+        )
+        # [B, 1, L_max, L_max]
+
+        nucleotide_attention = (
+            nucleotide_attention / normalization
+        )
+
+        # ---------------------------------------------------------
+        # 5. Zero out padded nucleotide positions
+        # ---------------------------------------------------------
+        nucleotide_mask = (
+            i < sequence_lengths.unsqueeze(1)
+        )  # [B, L_max]
+
+        nucleotide_attention = (
+            nucleotide_attention
+            * nucleotide_mask.unsqueeze(1).unsqueeze(-1)
+            * nucleotide_mask.unsqueeze(1).unsqueeze(2)
+        )
+
+        return nucleotide_attention
+    
     def get_pretrain_model_embeddings(self, batch) -> torch.Tensor | None:
         """
         事前学習モデルからの特徴量を取得する関数. 事前学習モデルが複数ある場合は結合して返す. モデルがない場合はNoneを返す.
@@ -76,26 +342,44 @@ class KnotFoldModel(nn.Module):
         pretrain_model_embeddings = None
         pretrain_model_embeddings_list = []
         if self.pretrain_models is not None:
-            for pretrain_model in self.pretrain_models:
+            for pretrain_model, kmer_token_info in zip(self.pretrain_models, self.kmer_token_infos):
                 with torch.inference_mode():
                     pretrain_outputs = pretrain_model._test(batch)
                 
                 output_embeddings = pretrain_outputs["attn"] if self.use_attention else pretrain_outputs["repr"]
                 
-                # additional tokensを除去 (必要な場合)
+                # additional tokensの除去とkmer token用の変換処理 (必要な場合)
                 max_length = max(batch["lengths"])
                 ## attentionの場合
                 if self.use_attention:
+                    # additional tokensの除去
                     if output_embeddings.shape[3] > max_length:
                         assert output_embeddings.shape[3] == max_length + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[3]} vs {max_length} + 2)"
 
-                        output_embeddings = output_embeddings[:, :, 1:-1, 1:-1] if self.use_attention else output_embeddings[:, 1:-1, :] # (B, E, L+2, L+2) -> (B, E, L, L)
+                        output_embeddings = output_embeddings[:, :, 1:-1, 1:-1] # (B, E, L+2, L+2) -> (B, E, L, L)
+                    
+                    # kmer tokenの変換処理
+                    if kmer_token_info is not None:
+                        output_embeddings = self._kmer_to_nucleotide_2d(
+                            attention_map=output_embeddings,
+                            sequence_lengths=torch.tensor(batch["lengths"]).to(device=self.device),
+                            kmer_token_info=kmer_token_info,
+                        ) # (B, E, kmer_L, kmer_L) -> (B, E, L, L)
+                            
                 ## attentionでない場合
                 else:
                     if output_embeddings.shape[1] > max_length:
                         assert output_embeddings.shape[1] == max_length + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[1]} vs {max_length} + 2)"
 
                         output_embeddings = output_embeddings[:, 1:-1, :] # (B, L+2, E) -> (B, L, E)
+                    
+                    # kmer tokenの変換処理
+                    if kmer_token_info is not None:
+                        output_embeddings = self._kmer_to_nucleotide_1d(
+                            pretrain_embedding=output_embeddings,
+                            sequence_lengths=torch.tensor(batch["lengths"]).to(device=self.device),
+                            kmer_token_info=kmer_token_info,
+                        ) # (B, kmer_L, E) -> (B, L, E)
 
                 pretrain_model_embeddings_list.append(output_embeddings)
             

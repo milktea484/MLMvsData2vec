@@ -89,6 +89,9 @@ class ExperimentConfig:
     
     use_attention: bool = MISSING
     """使用する特徴表現をattentionにするかどうか. falseなら配列特徴量になる"""
+    
+    kmer_token_processing_method: str | None = MISSING
+    """kmer tokenの処理方法. デフォルトは"average"."""
 
 @dataclass
 class MainConfig:
