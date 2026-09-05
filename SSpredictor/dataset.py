@@ -11,6 +11,7 @@ from torch.utils.data import Dataset
 from utils import bp2matrix, seq2token, create_attention_bias
 
 from pretrain.conf.config import MainConfig as PretrainMainConfig
+from pretrain.utils import kmer_tokenize
 
 
 class EmbeddingDataset(Dataset):
@@ -27,6 +28,9 @@ class EmbeddingDataset(Dataset):
         embedding_paths (list[Path]): すでにh5形式で保存されている配列特徴量のファイルパス. 事前学習モデルの出力を使用する場合に必要. 単体, 複数どちらの場合もlistとして渡される.
         reference_embedding_dim (int | None): 参照埋め込みの次元. これが指定されている場合, データセットは参照埋め込みを返すようになる.
         use_pretrain_model (bool): 事前学習モデルを使用して埋め込みを生成するかどうか. embedding_pathsが指定されている場合にのみ, Falseに設定可能
+        kmer_token_infos (list[dict] | None): 事前学習モデルのkmer tokenの情報を格納した辞書のリスト. kmer tokenを使用する場合にのみ指定される. 各辞書は以下のキーを持つ:
+            - "kmer_length": kmer tokenの長さ
+            - "kmer_stride": kmer tokenのストライド
     """
     
     def __init__(
@@ -41,6 +45,7 @@ class EmbeddingDataset(Dataset):
         embedding_paths: list[Path] | None = None,
         reference_embedding_dim: int | None = None,
         use_pretrain_model: bool = True,
+        kmer_token_infos: list[dict] | None = None,
     ):
         # 引数の検査
         assert use_pretrain_model or embedding_paths is not None, "Either use_pretrain_model must be True or embedding_paths must be specified."
@@ -66,6 +71,7 @@ class EmbeddingDataset(Dataset):
                 other_tokens=other_tokens,
                 use_additional_token=use_additional_token,
             )
+            
             for idx in range(len(self.token_seqs)):
                 if use_ernie_rna:
                     attn_bias, _ = create_attention_bias(
@@ -77,6 +83,15 @@ class EmbeddingDataset(Dataset):
                     if self.attn_biases is None:
                         self.attn_biases = []
                     self.attn_biases.append(attn_bias)
+                
+                # kmer_token_infosが指定されている場合, kmerトークン化する
+                if kmer_token_infos is not None and reference_embedding_dim is None:
+                    self.token_seqs[idx] = kmer_tokenize(
+                        self.token_seqs[idx],
+                        kmer_token_infos[0]["kmer_length"],
+                        kmer_token_infos[0]["kmer_stride"],
+                        use_additional_token
+                    )
         
         # 埋め込みのキャッシュファイルのパスのリスト
         self.cache_embedding_paths = embedding_paths if embedding_paths is not None else []
@@ -90,7 +105,8 @@ class EmbeddingDataset(Dataset):
         self.use_additional_token = use_additional_token
         self.use_attention = use_attention
         self.use_pretrain_model = use_pretrain_model
-        
+        self.kmer_token_infos = kmer_token_infos
+
         self._cache_embedding_hdf = [None] * len(self.cache_embedding_paths)  # 埋め込みのhdfファイルのハンドル. 最初はNoneで, 必要になったときに開く
     
     def _get_hdf(self, index: int):
@@ -209,10 +225,13 @@ class EmbeddingDataset(Dataset):
         # トークン長 (additional tokenを含むことがあるので, lengths とは別にする必要がある)
         token_lengths = None
         if self.token_seqs is not None:
+            token_lengths = lengths
+            if self.kmer_token_infos is not None and self.reference_embedding_dim is None:
+                kmer_length = self.kmer_token_infos[0]["kmer_length"]
+                kmer_stride = self.kmer_token_infos[0]["kmer_stride"]
+                token_lengths = [(length - kmer_length) // kmer_stride + 1 for length in lengths]
             if self.use_additional_token:
-                token_lengths = [length + 2 for length in lengths]
-            else:
-                token_lengths = lengths
+                token_lengths = [length + 2 for length in token_lengths]
 
         # バッチ用のテンソルとattentionマスクを初期化
         token_seqs_padded = None
@@ -220,7 +239,13 @@ class EmbeddingDataset(Dataset):
         attn_biases_padded = None
         if self.token_seqs is not None:
             # additional tokenを使用する場合は, CLSとEOSの分だけmax_lengthより2大きいサイズでパディングする必要がある
-            max_token_length = max_length + 2 if self.use_additional_token else max_length
+            max_token_length = max_length
+            if self.kmer_token_infos is not None and self.reference_embedding_dim is None:
+                kmer_length = self.kmer_token_infos[0]["kmer_length"]
+                kmer_stride = self.kmer_token_infos[0]["kmer_stride"]
+                max_token_length = (max_length - kmer_length) // kmer_stride + 1
+            if self.use_additional_token:
+                max_token_length += 2
 
             # token_seqsはadditional tokenを含む場合があるため, それらを考慮してパディングする必要がある. (lengthsはadditional tokenを含まないシーケンスの長さ)
             token_seqs_padded = torch.full((batch_size, max_token_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
@@ -344,6 +369,13 @@ def create_dataloader(config: MainConfig, split: str, pretrain_cfgs: list[Pretra
             embedding_paths.append(Path(config.path.embedding_dir) / embedding_file)
 
     if pretrain_cfgs is not None:
+        kmer_token_infos = []
+        for pretrain_cfg in pretrain_cfgs:
+            kmer_token_infos.append({
+                "kmer_length": pretrain_cfg.common.kmer_length,
+                "kmer_stride": pretrain_cfg.common.kmer_stride,
+            } if pretrain_cfg.experiment.use_kmer_token else None)
+        
         dataset = EmbeddingDataset(
             dataset_path=dataset_path,
             tokens=pretrain_cfgs[0].dataset.tokens,
@@ -354,6 +386,7 @@ def create_dataloader(config: MainConfig, split: str, pretrain_cfgs: list[Pretra
             use_attention=config.experiment.use_attention,
             embedding_paths=embedding_paths,
             reference_embedding_dim=reference_embedding_dim,
+            kmer_token_infos=kmer_token_infos,
         )
     else:
         # pretrain_configが指定されていない場合, 事前学習モデルを使用しないことを明示的に指定
