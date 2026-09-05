@@ -266,6 +266,7 @@ def main(cfg: MainConfig):
             pretrain_models=[info["model"] for info in pretrain_model_infos] if pretrain_model_infos else None,
             embedding_dim=embedding_dim,
             use_attention=main_cfg.experiment.use_attention,
+            use_additional_token=pretrain_cfg.experiment.use_additional_token if pretrain_model_infos else False,
             kmer_token_infos=kmer_token_infos,
             device=device
         )
@@ -287,6 +288,7 @@ def main(cfg: MainConfig):
                 pretrain_models=[info["model"] for info in pretrain_model_infos] if pretrain_model_infos else None,
                 embedding_dim=embedding_dim,
                 use_attention=main_cfg.experiment.use_attention,
+                use_additional_token=False, # referenceモデルではadditional tokenは使用しない
                 kmer_token_infos=kmer_token_infos, # referenceモデルではkmer tokenは使用しない
                 device=device,
                 reference=True

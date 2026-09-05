@@ -26,6 +26,7 @@ class KnotFoldModel(nn.Module):
             - kmer_stride: kmer tokenのストライド
         embedding_dim: 埋め込み次元数. 事前学習モデルの特徴量とデータセットの特徴量を結合した後の次元数を指定する必要がある.
         use_attention: 入力の形状がattention weightかどうか.
+        use_additional_token: 事前学習モデルがadditional tokenを使用しているかどうか.
         device: モデルを配置するデバイス.
         reference: 参照モデルかどうか. 
     """
@@ -36,6 +37,7 @@ class KnotFoldModel(nn.Module):
         kmer_token_infos: list[dict[str, Any]] | None,
         embedding_dim: int,
         use_attention: bool,
+        use_additional_token: bool,
         device: torch.device,
         reference: bool = False,
         **framework_kwargs,
@@ -66,6 +68,7 @@ class KnotFoldModel(nn.Module):
         self.embedding_dim = embedding_dim
         self.use_simple = arch["use_simple"]
         self.use_attention = use_attention
+        self.use_additional_token = use_additional_token
         self.reference = reference
         
         self.device = device
@@ -353,8 +356,8 @@ class KnotFoldModel(nn.Module):
                 ## attentionの場合
                 if self.use_attention:
                     # additional tokensの除去
-                    if output_embeddings.shape[3] > max_length:
-                        assert output_embeddings.shape[3] == max_length + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[3]} vs {max_length} + 2)"
+                    if self.use_additional_token:
+                        # assert output_embeddings.shape[3] == max_length + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[3]} vs {max_length} + 2)"
 
                         output_embeddings = output_embeddings[:, :, 1:-1, 1:-1] # (B, E, L+2, L+2) -> (B, E, L, L)
                     
@@ -368,8 +371,8 @@ class KnotFoldModel(nn.Module):
                             
                 ## attentionでない場合
                 else:
-                    if output_embeddings.shape[1] > max_length:
-                        assert output_embeddings.shape[1] == max_length + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[1]} vs {max_length} + 2)"
+                    if self.use_additional_token:
+                        # assert output_embeddings.shape[1] == max_length + 2, f"Output embeddings length does not match expected length! ({output_embeddings.shape[1]} vs {max_length} + 2)"
 
                         output_embeddings = output_embeddings[:, 1:-1, :] # (B, L+2, E) -> (B, L, E)
                     
