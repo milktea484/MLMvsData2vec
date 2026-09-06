@@ -36,6 +36,8 @@ class EmbeddingDataset(Dataset):
     def __init__(
         self,
         dataset_path: Path,
+        rna_tokens: list[str] = ["A", "C", "G", "U", "N"],
+        additional_tokens: list[str] = ["<mask>", "<pad>", "<cls>", "<eos>"],
         tokens: list[str] = ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"],
         other_tokens: list[str] = ["B", "D", "F", "I", "H", "K", "M", "S", "R", "W", "V", "Y", "X"],
         use_additional_token: bool = False,
@@ -61,15 +63,21 @@ class EmbeddingDataset(Dataset):
         self.base_pairs = [json.loads(data.base_pairs.iloc[i]) for i in range(len(data))]
         self.seq_ids = data["id"].tolist()
         
+        # additional tokenのindexを設定
+        self.additional_token_idxes = {
+            additional_token: len(rna_tokens) ** kmer_token_infos[0]["kmer_length"] + idx for idx, additional_token in enumerate(additional_tokens)
+        }
+        
         # トークン化されたシーケンスの生成 (事前学習モデルを使用する場合のみ)
         self.token_seqs = None
         self.attn_biases = None
         if use_pretrain_model:
             self.token_seqs = seq2token(
                 sequences=self.sequences,
-                tokens=tokens,
+                rna_tokens=rna_tokens,
                 other_tokens=other_tokens,
                 use_additional_token=use_additional_token,
+                additional_token_idxes=self.additional_token_idxes
             )
             
             for idx in range(len(self.token_seqs)):
@@ -248,7 +256,7 @@ class EmbeddingDataset(Dataset):
                 max_token_length += 2
 
             # token_seqsはadditional tokenを含む場合があるため, それらを考慮してパディングする必要がある. (lengthsはadditional tokenを含まないシーケンスの長さ)
-            token_seqs_padded = torch.full((batch_size, max_token_length), fill_value=self.tokens.index("<pad>"), dtype=torch.long)
+            token_seqs_padded = torch.full((batch_size, max_token_length), fill_value=self.additional_token_idxes["<pad>"], dtype=torch.long)
         
             # attentionマスクも同様にadditional tokenを考慮して初期化
             attn_mask = torch.full((batch_size, 1, max_token_length, max_token_length), fill_value=-1e6)

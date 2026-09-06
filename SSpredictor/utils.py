@@ -11,29 +11,36 @@ from omegaconf import OmegaConf
 
 def seq2token(
     sequences: list[str],
-    tokens: list[str] = ["A", "C", "G", "U", "N", "<mask>", "<pad>", "<cls>", "<eos>"],
+    rna_tokens: list[str] = ["A", "C", "G", "U", "N"],
     other_tokens: list[str] = ["B", "D", "F", "I", "H", "K", "M", "S", "R", "W", "V", "Y", "X"],
-    use_additional_token: bool = False
+    use_additional_token: bool = False,
+    additional_token_idxes: dict[str, int] = {
+        "<cls>": 5,
+        "<eos>": 6,
+        "<pad>": 7,
+        "<mask>": 8
+    }
 ) -> list[torch.Tensor]:
     """
     文字列のシーケンスをトークンIDのテンソルに変換する関数
     Args:
         sequences (list[str]): 文字列のシーケンスのリスト
-        tokens (list[str]): トークンのリスト
+        rna_tokens (list[str]): RNAトークンのリスト
         other_tokens (list[str]): その他Nに変換される塩基のリスト
         use_additional_token (bool): CLS, EOSトークンを使用するかどうか
+        additional_token_idxes (dict[str, int]): CLS, EOS, PAD, MASKトークンのインデックスを指定する辞書
     Returns:
         list[torch.Tensor]: トークンIDのテンソルのリスト
     """
-    mapping = {nt: idx for idx, nt in enumerate(tokens)}
-    mapping.update({nt: tokens.index("N") for nt in other_tokens})
+    mapping = {nt: idx for idx, nt in enumerate(rna_tokens)}
+    mapping.update({nt: rna_tokens.index("N") for nt in other_tokens})
     mapping["T"] = mapping["U"]
     
     token_seqs = []
     for seq in sequences:
         token_seq = [mapping.get(nt) for nt in seq.upper()]
         if use_additional_token:
-            token_seq = [mapping["<cls>"]] + token_seq + [mapping["<eos>"]]
+            token_seq = [additional_token_idxes["<cls>"]] + token_seq + [additional_token_idxes["<eos>"]]
         
         if any(v is None for v in token_seq):
             raise ValueError("Invalid nucleotide found")
